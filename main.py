@@ -21,13 +21,13 @@ def main():
 
     console.print(table)
     # dump everything to log file as plain text
-    with open(log_file_path, "w") as log_file:
+    with open(log_file_path, "a") as log_file:
         log_file.write(console.export_text())
 
     # run tests (they should also print via this console if you refactor)
     for tc in baseline_injection.TEST_CASES:
         _console = baseline_injection.run_test_case(tc)
-        with open(log_file_path, "w") as log_file:
+        with open(log_file_path, "a") as log_file:
             log_file.write(_console.export_text())
 
 
