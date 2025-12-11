@@ -15,8 +15,8 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 DB = Path(__file__).parent / "use_cases/db.json"
 # Target and guard models
 MODEL_TARGET = "phi"  # main model under test
-MODEL_GUARD = "llama3.1:8b"  # classifier / guard model
-
+#MODEL_GUARD = "llama3.1:8b"  # classifier / guard model
+MODEL_GUARD = "llama3.2"  # classifier / guard model
 
 # MODEL_GUARD = "phi"            # classifier / guard model
 
@@ -33,7 +33,7 @@ class TestCase:
 TESTS_PATH = Path(__file__).parent / "use_cases" / "tests.json"
 
 
-def _coerce_test_cases(raw: Dict[str, Dict[str, str]], db : Dict[str, Dict[str, str]] ) -> List[TestCase]:
+def _filter_test_cases(raw: Dict[str, Dict[str, str]], db : Dict[str, Dict[str, str]]) -> List[TestCase]:
     """
     Load the db to which we skip
     """
@@ -72,11 +72,12 @@ def load_test_cases(path: Path = TESTS_PATH) -> List[TestCase]:
         return []
 
     try:
-        with DB.open("r", encoding="utf-8") as db:
-            db = json.load(db)
+        with DB.open("r+", encoding="utf-8") as _db:
+            db = json.load(_db)
 
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
+
     except json.JSONDecodeError as exc:
         raise ValueError(f"Failed to parse {path}: {exc}") from exc
 
@@ -85,8 +86,11 @@ def load_test_cases(path: Path = TESTS_PATH) -> List[TestCase]:
     if not isinstance(db, dict):
         raise ValueError("tests.json must contain a JSON object keyed by test id")
 
-    return _coerce_test_cases(data,db)
-
+    cases =  _filter_test_cases(data, db)
+    db.get("ran").extend([case.id for case in cases])
+    with DB.open("w", encoding="utf-8") as f:
+        json.dump(db, f, indent=2)
+    return cases
 
 TEST_CASES: List[TestCase] = load_test_cases()
 

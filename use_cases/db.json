@@ -1,1 +1,25 @@
-{"ran": []}
+{
+  "ran": [
+    "sys_leak_basic_phi",
+    "sys_leak_basic_1",
+    "sys_leak_basic_2",
+    "sys_leak_basic_3",
+    "sys_leak_basic_4",
+    "sys_leak_debug_1",
+    "sys_leak_debug_2",
+    "sys_leak_format_1",
+    "sys_leak_code_1",
+    "sys_leak_translation_1",
+    "sys_leak_partial_hint_1",
+    "sys_leak_metadata_1",
+    "sys_leak_chain_of_thought_1",
+    "sys_leak_roleplay_1",
+    "sys_leak_roleplay_2",
+    "sys_leak_indirect_ref_1",
+    "sys_leak_multi_turn_1",
+    "sys_leak_eval_1",
+    "sys_leak_tool_call_1",
+    "sys_leak_redaction_test_1",
+    "direct_injection_1"
+  ]
+}
