@@ -1,10 +1,5 @@
 {
   "ran": [
-    "sys_leak_basic_phi",
-    "sys_leak_basic_1",
-    "sys_leak_basic_2",
-    "sys_leak_basic_3",
-    "sys_leak_basic_4",
     "sys_leak_debug_1",
     "sys_leak_debug_2",
     "sys_leak_format_1",
@@ -20,6 +15,18 @@
     "sys_leak_eval_1",
     "sys_leak_tool_call_1",
     "sys_leak_redaction_test_1",
-    "direct_injection_1"
+    "direct_injection_1",
+    "jailbreak-poetry_1",
+    "jailbreak-poetry_2",
+    "jailbreak-poetry_3",
+    "jailbreak-poetry_4",
+    "jailbreak-poetry_5",
+    "sys_leak_tests_overview",
+    "sys_leak_basic_5",
+    "sys_leak_basic_phi",
+    "sys_leak_basic_1",
+    "sys_leak_basic_2",
+    "sys_leak_basic_3",
+    "sys_leak_basic_4"
   ]
 }

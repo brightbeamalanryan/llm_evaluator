@@ -1,0 +1,38 @@
+# Example configuration for eval-fw
+# Copy this to config.yaml and modify as needed
+
+# Target model to evaluate (the model under test)
+target:
+  type: ollama  # Options: ollama, openai, anthropic
+  model: phi
+  # api_key: ${OPENAI_API_KEY}  # For cloud providers
+  # base_url: http://localhost:11434/api/chat  # For custom endpoints
+  temperature: 0.3
+  top_p: 0.9
+  timeout: 600
+
+# Guard model for classification (evaluates target responses)
+guard:
+  type: ollama
+  model: llama3.2
+  temperature: 0.1  # Lower temperature for more consistent classification
+
+# Path to test cases (JSON or YAML)
+tests_path: ./use_cases/tests.json
+
+# Optional: Track which tests have been run
+state_file: ./use_cases/db.json
+
+# Number of concurrent tests (for async mode)
+concurrency: 5
+
+# Report configuration
+report:
+  output_dir: ./reports
+  formats:
+    - json
+    - html
+  # html_template: ./custom_template.html  # Optional custom template
+
+# Logging directory
+log_dir: ./logs
