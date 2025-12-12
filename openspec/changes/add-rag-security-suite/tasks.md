@@ -1,21 +1,23 @@
-## 1. Attack Simulations
-- [ ] 1.1 Implement context injection tests
-- [ ] 1.2 Implement retrieval override tests
-- [ ] 1.3 Implement prompt template inversion tests
-- [ ] 1.4 Implement multi-hop attack chains
-- [ ] 1.5 Implement metadata extraction tests
+## 1. Attack Test Cases (JSON-based)
+- [x] 1.1 Create context injection test cases in `use_cases/rag_tests.json`
+- [x] 1.2 Create retrieval override test cases
+- [x] 1.3 Create prompt template inversion test cases
+- [x] 1.4 Create multi-hop attack chain test cases
+- [x] 1.5 Create metadata extraction test cases
 
 ## 2. RAG Infrastructure
-- [ ] 2.1 Create mock RAG pipeline for testing
-- [ ] 2.2 Add vector store adapters (ChromaDB, Pinecone)
-- [ ] 2.3 Implement document poisoning simulation
-- [ ] 2.4 Add chunking strategy analysis
+- [x] 2.1 Create `src/eval_fw/rag/` module structure
+- [x] 2.2 Create mock RAG pipeline for testing (no external deps)
+- [x] 2.3 Create RAG test loader (extends base TestLoader)
+- [x] 2.4 Create RAG client for localhost:8091 service
+- [x] 2.5 Implement context injection detector
 
 ## 3. Detection & Scoring
-- [ ] 3.1 Implement hallucinated rule detector
-- [ ] 3.2 Implement source attribution validator
-- [ ] 3.3 Create RAG-specific severity scoring
+- [x] 3.1 Hallucinated rule detector (reuse from guard module)
+- [x] 3.2 Implement source attribution validator
+- [x] 3.3 Implement metadata leakage detector
+- [x] 3.4 Create RAG-specific severity scoring
 
 ## 4. Testing
-- [ ] 4.1 Unit tests for attack simulations
-- [ ] 4.2 Integration tests with mock RAG pipeline
+- [x] 4.1 Unit tests for RAG module
+- [x] 4.2 Integration tests with mock RAG pipeline
