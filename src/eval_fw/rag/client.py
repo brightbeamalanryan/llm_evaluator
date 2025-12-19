@@ -28,7 +28,7 @@ class RAGClient:
 
     def __init__(
         self,
-        service_url: str = "http://localhost:8091",
+        service_url: str = "http://localhost:8000",
         query_endpoint: str = "/query",
         retrieve_endpoint: str = "/retrieve",
         ingest_endpoint: str = "/ingest",
@@ -159,6 +159,7 @@ class MockRAGClient(RAGClient):
         super().__init__(**kwargs)
         self._mock_docs: list[dict[str, Any]] = []
         self._mock_responses: dict[str, str] = {}
+        self.last_query_kwargs: dict[str, Any] = {}
 
     def add_mock_document(self, content: str, metadata: dict[str, Any] | None = None) -> None:
         """Add a mock document to be returned in retrieval."""
@@ -174,6 +175,7 @@ class MockRAGClient(RAGClient):
 
     def query(self, query: str, **kwargs: Any) -> RAGResponse:
         """Return a mock response."""
+        self.last_query_kwargs = dict(kwargs)
         answer = self._mock_responses.get(
             query,
             f"Mock response for: {query}",

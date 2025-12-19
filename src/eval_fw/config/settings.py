@@ -45,6 +45,46 @@ class ReportSettings:
 
 
 @dataclass
+class RAGSettings:
+    """Settings for RAG security testing."""
+
+    tests_path: str = "./use_cases/rag_tests.json"
+    service_url: str = "http://localhost:8000"
+    query_endpoint: str = "/query"
+    retrieve_endpoint: str = "/retrieve"
+    ingest_endpoint: str = "/ingest"
+    endpoint_mode: str = "query"
+    mutator: "RAGMutatorSettings" = field(default_factory=lambda: RAGMutatorSettings())
+
+
+@dataclass
+class RAGMutatorSettings:
+    """Settings for iterative RAG prompt mutation."""
+
+    enabled: bool = False
+    provider_type: Literal["openai", "anthropic", "ollama"] = "ollama"
+    model: str = "prompt-mutator"
+    base_url: str | None = None
+    temperature: float = 0.7
+    top_p: float = 0.9
+    timeout: int = 600
+    max_iterations: int = 20
+    plateau_window: int = 10
+    plateau_tolerance: float = 0.01
+
+    def to_provider_config(self) -> ProviderConfig:
+        """Convert to ProviderConfig."""
+        return ProviderConfig(
+            model=self.model,
+            api_key=None,
+            base_url=self.base_url,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            timeout=self.timeout,
+        )
+
+
+@dataclass
 class Settings:
     """Main configuration settings."""
 
@@ -55,6 +95,7 @@ class Settings:
     concurrency: int = 5
     report: ReportSettings = field(default_factory=ReportSettings)
     log_dir: str = "./logs"
+    rag: RAGSettings = field(default_factory=RAGSettings)
 
 
 def _parse_provider(data: dict[str, Any]) -> ProviderSettings:
@@ -82,6 +123,34 @@ def _parse_report(data: dict[str, Any] | None) -> ReportSettings:
     )
 
 
+def _parse_rag(data: dict[str, Any] | None) -> RAGSettings:
+    """Parse RAG settings from dict."""
+    if not data:
+        return RAGSettings()
+    mutator_data = data.get("mutator", {})
+    mutator = RAGMutatorSettings(
+        enabled=mutator_data.get("enabled", False),
+        provider_type=mutator_data.get("provider_type", "ollama"),
+        model=mutator_data.get("model", "prompt-mutator"),
+        base_url=mutator_data.get("base_url"),
+        temperature=mutator_data.get("temperature", 0.7),
+        top_p=mutator_data.get("top_p", 0.9),
+        timeout=mutator_data.get("timeout", 600),
+        max_iterations=mutator_data.get("max_iterations", 20),
+        plateau_window=mutator_data.get("plateau_window", 10),
+        plateau_tolerance=mutator_data.get("plateau_tolerance", 0.01),
+    )
+    return RAGSettings(
+        tests_path=data.get("tests_path", "./use_cases/rag_tests.json"),
+        service_url=data.get("service_url", "http://localhost:8000"),
+        query_endpoint=data.get("query_endpoint", "/query"),
+        retrieve_endpoint=data.get("retrieve_endpoint", "/retrieve"),
+        ingest_endpoint=data.get("ingest_endpoint", "/ingest"),
+        endpoint_mode=data.get("endpoint_mode", "query"),
+        mutator=mutator,
+    )
+
+
 def load_config(path: Path) -> Settings:
     """
     Load configuration from a YAML file.
@@ -102,6 +171,13 @@ def load_config(path: Path) -> Settings:
         tests_path: ./use_cases/tests.json
         state_file: ./use_cases/db.json
         concurrency: 5
+        rag:
+          tests_path: ./use_cases/rag_tests.json
+          service_url: http://localhost:8091
+          query_endpoint: /query
+          retrieve_endpoint: /retrieve
+          ingest_endpoint: /ingest
+          endpoint_mode: query
         report:
           output_dir: ./reports
           formats:
@@ -131,4 +207,5 @@ def load_config(path: Path) -> Settings:
         concurrency=data.get("concurrency", 5),
         report=_parse_report(data.get("report")),
         log_dir=data.get("log_dir", "./logs"),
+        rag=_parse_rag(data.get("rag")),
     )

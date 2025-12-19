@@ -5,13 +5,16 @@ RAG security testing requires simulating realistic retrieval pipelines and injec
 - Goals:
   - Test RAG systems against document injection
   - Detect metadata and schema leakage
-  - Validate source attribution
+  - Detect retrieval override attempts
 - Non-Goals:
   - Managing the RAG service itself
   - Embedding model security (separate concern)
 
 ## Decisions
-- **RAG Service:** Use local RAG service at `localhost:8091`
+- **RAG Service:** Use local RAG service at `localhost:8000` e.g ; 
+> curl -s http://127.0.0.1:8000/query \
+>    -H 'Content-Type: application/json' \
+>    -d '{"query":"What medications are listed for Maya Torres?"}'
 - **Mock Mode:** Include lightweight mock for testing without the service
 - **Attack Library:** JSON-based test cases in `use_cases/rag_tests.json`
 - **Reuse:** Leverage existing `HallucinatedRuleDetector` from guard module
@@ -22,7 +25,7 @@ src/eval_fw/rag/
 ├── __init__.py
 ├── loader.py         # RAGTestCase, RAGTestLoader
 ├── client.py         # RAGClient (hits localhost:8091)
-├── detectors.py      # MetadataLeakageDetector, SourceAttributionValidator
+├── detectors.py      # Context, override, metadata, multi-hop, hallucinated rules
 └── scoring.py        # RAGSeverityScorer
 ```
 
@@ -40,10 +43,9 @@ RAG_SERVICE_URL = "http://localhost:8091"
 ## RAG Attack Categories
 1. **Context Injection:** Malicious instructions in retrieved docs
 2. **Retrieval Override:** "Ignore previous documents..."
-3. **Template Inversion:** Reconstruct RAG prompt template from outputs
-4. **Metadata Leakage:** Extract filenames, chunk IDs, scores
-5. **Multi-hop Attacks:** Chain queries to build context
-6. **Hallucinated Rules:** Model invents policies from retrieved content (use existing detector)
+3. **Metadata Leakage:** Extract filenames, chunk IDs, scores
+4. **Multi-hop Attacks:** Chain queries to build context
+5. **Hallucinated Rules:** Model invents policies from retrieved content (use existing detector)
 
 ## Test Case Schema (rag_tests.json)
 ```json

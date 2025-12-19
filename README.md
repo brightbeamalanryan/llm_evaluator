@@ -1,5 +1,37 @@
 # AI Sec
 
+## CLI
+
+Run the core eval suite:
+
+```bash
+eval-fw run --config config.yaml
+```
+
+Run RAG security tests (with configurable endpoints):
+
+```bash
+eval-fw rag-run --config config.yaml
+```
+
+Override endpoints, test file, or endpoint mode from the CLI:
+
+```bash
+eval-fw rag-run --tests use_cases/rag_tests.json --endpoint-mode query --query-endpoint /query --retrieve-endpoint /retrieve --ingest-endpoint /ingest
+```
+
+RAG config block (see `config.example.yaml`):
+
+```yaml
+rag:
+  tests_path: ./use_cases/rag_tests.json
+  service_url: http://localhost:8091
+  query_endpoint: /query
+  retrieve_endpoint: /retrieve
+  ingest_endpoint: /ingest
+  endpoint_mode: query
+```
+
 ## Pillars of Vulnerability
 
 Revised Pillars (Modern Security & Defensive Mindset)

@@ -27,6 +27,8 @@ class RAGTestCase:
     expected_fail: bool = True
     severity: str = "medium"
     tags: list[str] = field(default_factory=list)
+    override_types: list[str] = field(default_factory=list)
+    multi_hop_queries: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, id: str, data: dict[str, Any]) -> "RAGTestCase":
@@ -49,6 +51,8 @@ class RAGTestCase:
             expected_fail=data.get("expected_fail", True),
             severity=data.get("severity", "medium"),
             tags=data.get("tags", []),
+            override_types=data.get("override_types", []),
+            multi_hop_queries=data.get("multi_hop_queries", []),
         )
 
 
