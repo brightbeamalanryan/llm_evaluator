@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 import json
 import logging
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from eval_fw.rag.client import RAGClient, RAGResponse
 from eval_fw.rag.loader import RAGTestCase
@@ -86,11 +86,22 @@ class RAGSessionRunner:
         mutator: LLMProvider | None = None,
         mutator_config: RAGMutatorConfig | None = None,
         scorer: RAGSeverityScorer | None = None,
+        event_sink: Callable[[RAGTestCase, str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.client = client
         self.mutator = mutator
         self.mutator_config = mutator_config or RAGMutatorConfig()
         self.scorer = scorer
+        self._event_sink = event_sink
+
+    def _emit_event(
+        self,
+        test_case: RAGTestCase,
+        kind: str,
+        payload: dict[str, Any],
+    ) -> None:
+        if self._event_sink:
+            self._event_sink(test_case, kind, payload)
 
     def _plateau_reached(self, scores: list[float]) -> bool:
         window = self.mutator_config.plateau_window
@@ -135,6 +146,15 @@ class RAGSessionRunner:
         logger.info("RAG test attack_type=%s", test_case.attack_type)
         logger.info("RAG test endpoint_mode=%s", endpoint_mode)
         logger.info("RAG test base_query=%s", test_case.query)
+        self._emit_event(
+            test_case,
+            "test_start",
+            {
+                "description": test_case.description,
+                "attack_type": test_case.attack_type,
+                "endpoint_mode": endpoint_mode,
+            },
+        )
 
     def _log_mutator_iteration(
         self,
@@ -144,12 +164,25 @@ class RAGSessionRunner:
         response: str,
         score: float,
         delta: float | None,
+        test_case: RAGTestCase | None = None,
     ) -> None:
         delta_text = "n/a" if delta is None else f"{delta:.2f}"
         logger.info("RAG iteration %d/%d", iteration, max_iterations)
         logger.info("RAG iteration prompt=%s", prompt)
         logger.info("RAG iteration response=%s", response)
         logger.info("RAG iteration score=%.2f delta=%s", score, delta_text)
+        if test_case:
+            self._emit_event(
+                test_case,
+                "iteration",
+                {
+                    "iteration": iteration,
+                    "prompt": prompt,
+                    "response": response,
+                    "score": score,
+                    "delta": delta_text,
+                },
+            )
 
     def _log_mutator_next_prompt(self, next_prompt: str) -> None:
         logger.info("RAG mutator next_prompt=%s", next_prompt)
@@ -164,13 +197,28 @@ class RAGSessionRunner:
             return previous_query
         user_prompt = self._build_mutator_prompt(test_case, attempts, previous_query)
         logger.info("RAG mutator request=%s", user_prompt)
+        self._emit_event(
+            test_case,
+            "mutator_request",
+            {"request": user_prompt},
+        )
         try:
             response = self.mutator.chat(MUTATOR_SYSTEM_PROMPT, user_prompt)
         except Exception as exc:
             logger.warning("RAG mutator failed: %s", exc)
             return previous_query
+        self._emit_event(
+            test_case,
+            "call",
+            {"target": "mutator", "detail": "chat"},
+        )
         mutated = (json.loads(response.content).get("mutations")[0]["prompt"] or "").strip()
         logger.info("RAG mutator reply=%s", mutated)
+        self._emit_event(
+            test_case,
+            "mutator_reply",
+            {"reply": mutated},
+        )
         if not mutated:
             logger.warning("RAG mutator returned empty prompt; reusing previous query")
             return previous_query
@@ -197,6 +245,11 @@ class RAGSessionRunner:
 
         for iteration in range(max_iterations):
             last_response = session.query(current_query)
+            self._emit_event(
+                test_case,
+                "call",
+                {"target": "rag_query", "detail": "query"},
+            )
             prior_history = session.history[:-1]
             score_value = self.scorer.score_value(
                 test_case,
@@ -221,6 +274,7 @@ class RAGSessionRunner:
                 last_response.answer,
                 score_value,
                 delta_value,
+                test_case=test_case,
             )
             stop_threshold = self.mutator_config.stop_score_threshold
             if stop_threshold > 0 and score_value >= stop_threshold:
@@ -280,7 +334,16 @@ class RAGSessionRunner:
         session = RAGSession(client=self.client)
         for query in test_case.multi_hop_queries:
             if endpoint_mode == "query":
-                session.query(query)
+                response = session.query(query)
+                self._emit_event(
+                    test_case,
+                    "exchange",
+                    {
+                        "prompt": query,
+                        "response": response.answer,
+                        "role": "hop",
+                    },
+                )
             elif endpoint_mode == "retrieve":
                 docs = self.client.retrieve(query)
                 session.steps.append(
@@ -310,6 +373,15 @@ class RAGSessionRunner:
                 final_response = self._run_mutation_loop(test_case, session)
             else:
                 final_response = session.query(test_case.query)
+                self._emit_event(
+                    test_case,
+                    "exchange",
+                    {
+                        "prompt": test_case.query,
+                        "response": final_response.answer,
+                        "role": "final",
+                    },
+                )
         elif endpoint_mode == "retrieve":
             docs = self.client.retrieve(test_case.query)
             final_response = RAGResponse(

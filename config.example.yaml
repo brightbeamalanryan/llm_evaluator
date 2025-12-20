@@ -46,6 +46,7 @@ report:
   formats:
     - json
     - html
+    - ascii
   # html_template: ./custom_template.html  # Optional custom template
 
 # Logging directory

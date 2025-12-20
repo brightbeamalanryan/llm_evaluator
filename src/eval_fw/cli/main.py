@@ -27,8 +27,10 @@ from eval_fw.reporting.base import TestReport
 from eval_fw.reporting.html_report import HTMLReporter
 from eval_fw.reporting.json_report import JSONReporter
 from eval_fw.reporting.pdf_report import PDFReporter
+from eval_fw.reporting.rag_ascii_report import RAGAsciiReporter
 from eval_fw.rag import (
     RAGClient,
+    RAGTestCase,
     RAGTestLoader,
     RAGSeverityScorer,
     RAGGuardScorer,
@@ -370,11 +372,31 @@ def rag_run(
             plateau_tolerance=settings.mutator.plateau_tolerance,
             stop_score_threshold=settings.mutator.stop_score_threshold,
         )
+    threads: dict[str, dict[str, Any]] = {}
+
+    def record_event(tc: RAGTestCase, kind: str, payload: dict[str, Any]) -> None:
+        thread = threads.setdefault(
+            tc.id,
+            {
+                "test_id": tc.id,
+                "description": tc.description,
+                "events": [],
+            },
+        )
+        thread["events"].append(
+            {
+                "kind": kind,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "data": payload,
+            }
+        )
+
     runner = RAGSessionRunner(
         client,
         mutator=mutator_provider,
         mutator_config=mutator_config,
         scorer=scorer,
+        event_sink=record_event,
     )
 
     console.print("\n[bold]Running RAG tests...[/bold]\n")
@@ -384,6 +406,17 @@ def rag_run(
         response, history = runner.run(tc, endpoint_mode=resolved_endpoint_mode)
         result = scorer.score(tc, response, history=history)
         results.append(result)
+        if result.guard_result:
+            record_event(
+                tc,
+                "guard",
+                {
+                    "verdict": result.guard_result.verdict.value,
+                    "severity": result.guard_result.severity_score,
+                    "notes": result.guard_result.notes,
+                },
+            )
+            record_event(tc, "call", {"target": "guard", "detail": "score"})
         status = "[bold green]PASS[/bold green]" if result.passed else "[bold red]FAIL[/bold red]"
         console.print(f"  {tc.id}: {status}")
         if result.guard_result:
@@ -438,6 +471,49 @@ def rag_run(
             encoding="utf-8",
         )
         logger.info("RAG state updated path=%s count=%d", state_path, len(ran_ids))
+
+    report_dir = Path(settings.report.output_dir)
+    report_formats = settings.report.formats
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"rag_report_{timestamp}"
+    sidecar_path = report_dir / f"rag_thread_{timestamp}.json"
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+    sidecar_payload = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "summary": summary,
+        "threads": list(threads.values()),
+    }
+    sidecar_path.write_text(
+        json.dumps(sidecar_payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    logger.info("RAG thread sidecar written path=%s", sidecar_path)
+    rag_reporters = {
+        "ascii": RAGAsciiReporter(),
+    }
+    if report_formats:
+        console.print(f"\n[dim]Generating RAG reports in:[/dim] {report_dir}")
+    for fmt in report_formats:
+        fmt = fmt.strip().lower()
+        if fmt in rag_reporters:
+            try:
+                output_path = rag_reporters[fmt].generate(
+                    results=results,
+                    summary=summary,
+                    output_path=report_dir / base_name,
+                    log_path=Path(log_path),
+                    sidecar_path=sidecar_path,
+                    metadata={
+                        "Guard Model": f"{settings.guard.type}/{settings.guard.model}",
+                        "Service URL": resolved_service_url,
+                        "Endpoint Mode": resolved_endpoint_mode,
+                    },
+                )
+                console.print(f"  [green]✓[/green] {output_path}")
+                logger.info("Generated RAG report format=%s path=%s", fmt, output_path)
+            except Exception as e:
+                console.print(f"  [red]✗[/red] {fmt}: {e}")
+                logger.exception("Failed to generate RAG report format=%s", fmt)
 
     client.close()
 

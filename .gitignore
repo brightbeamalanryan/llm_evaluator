@@ -12,3 +12,4 @@ wheels/
 src/logs
 logs/eval-fw.log logs/log.txt
 logs/
+reports/
