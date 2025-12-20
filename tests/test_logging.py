@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from eval_fw.logging import setup_logging
+from eval_fw.log_config import setup_logging
 from eval_fw.rag.client import MockRAGClient
 from eval_fw.rag.loader import RAGTestCase
 from eval_fw.rag.runner import RAGSessionRunner

@@ -718,6 +718,10 @@ class TestIntegrationWithMockClient:
 
         runner.run(test_case)
 
-        assert "Prompt: HACKED" in mutator.last_user_prompt
-        assert "Response: Mock response for: HACKED" in mutator.last_user_prompt
-        assert "Severity score:" in mutator.last_user_prompt
+        payload = json.loads(mutator.last_user_prompt)
+        assert payload["user_prompt"] == "HACKED"
+        assert payload["system_prompt"] == "uses history"
+        assert payload["attack_type"] == "context_injection"
+        assert payload["history"][0]["prompt"] == "HACKED"
+        assert payload["history"][0]["response"].startswith("Mock response for: HACKED")
+        assert isinstance(payload["history"][0]["score"], float)

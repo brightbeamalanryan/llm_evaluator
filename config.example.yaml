@@ -17,6 +17,20 @@ guard:
   model: llama3.2
   temperature: 0.1  # Lower temperature for more consistent classification
 
+# Mutator model for RAG prompt evolution
+mutator:
+  enabled: true
+  type: ollama
+  model: prompt-mutator
+  # base_url: http://localhost:11434/api/chat
+  temperature: 0.7
+  top_p: 0.9
+  timeout: 600
+  max_iterations: 20
+  plateau_window: 10
+  plateau_tolerance: 0.01
+  stop_score_threshold: 1.0
+
 # Path to test cases (JSON or YAML)
 tests_path: ./use_cases/tests.json
 
@@ -41,18 +55,7 @@ log_dir: ./logs
 #  retrieve_endpoint: /retrieve
 #  ingest_endpoint: /ingest
 rag:
-  tests_path: ./use_cases/rag_tests.json
+  tests_path: /home/alan/devel/ai_sec/apps/llm_evaluator/use_cases/rag_tests.json
   service_url: http://localhost:8000
   query_endpoint: /query
   endpoint_mode: query
-  mutator:
-    enabled: true
-    provider_type: ollama
-    model: prompt-mutator
-    base_url: http://localhost:11434/api/chat
-    temperature: 0.7
-    top_p: 0.9
-    timeout: 600
-    max_iterations: 20
-    plateau_window: 10
-    plateau_tolerance: 0.01

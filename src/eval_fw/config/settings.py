@@ -54,16 +54,16 @@ class RAGSettings:
     retrieve_endpoint: str = "/retrieve"
     ingest_endpoint: str = "/ingest"
     endpoint_mode: str = "query"
-    mutator: "RAGMutatorSettings" = field(default_factory=lambda: RAGMutatorSettings())
 
 
 @dataclass
-class RAGMutatorSettings:
+class MutatorSettings:
     """Settings for iterative RAG prompt mutation."""
 
     enabled: bool = False
-    provider_type: Literal["openai", "anthropic", "ollama"] = "ollama"
+    type: Literal["openai", "anthropic", "ollama"] = "ollama"
     model: str = "prompt-mutator"
+    api_key: str | None = None
     base_url: str | None = None
     temperature: float = 0.7
     top_p: float = 0.9
@@ -71,16 +71,19 @@ class RAGMutatorSettings:
     max_iterations: int = 20
     plateau_window: int = 10
     plateau_tolerance: float = 0.01
+    stop_score_threshold: float = 1.0
+    extra: dict[str, Any] = field(default_factory=dict)
 
     def to_provider_config(self) -> ProviderConfig:
         """Convert to ProviderConfig."""
         return ProviderConfig(
             model=self.model,
-            api_key=None,
+            api_key=self.api_key,
             base_url=self.base_url,
             temperature=self.temperature,
             top_p=self.top_p,
             timeout=self.timeout,
+            extra=self.extra,
         )
 
 
@@ -90,6 +93,7 @@ class Settings:
 
     target: ProviderSettings
     guard: ProviderSettings
+    mutator: MutatorSettings = field(default_factory=MutatorSettings)
     tests_path: str = "./tests.json"
     state_file: str | None = None
     concurrency: int = 5
@@ -127,19 +131,6 @@ def _parse_rag(data: dict[str, Any] | None) -> RAGSettings:
     """Parse RAG settings from dict."""
     if not data:
         return RAGSettings()
-    mutator_data = data.get("mutator", {})
-    mutator = RAGMutatorSettings(
-        enabled=mutator_data.get("enabled", False),
-        provider_type=mutator_data.get("provider_type", "ollama"),
-        model=mutator_data.get("model", "prompt-mutator"),
-        base_url=mutator_data.get("base_url"),
-        temperature=mutator_data.get("temperature", 0.7),
-        top_p=mutator_data.get("top_p", 0.9),
-        timeout=mutator_data.get("timeout", 600),
-        max_iterations=mutator_data.get("max_iterations", 20),
-        plateau_window=mutator_data.get("plateau_window", 10),
-        plateau_tolerance=mutator_data.get("plateau_tolerance", 0.01),
-    )
     return RAGSettings(
         tests_path=data.get("tests_path", "./use_cases/rag_tests.json"),
         service_url=data.get("service_url", "http://localhost:8000"),
@@ -147,7 +138,32 @@ def _parse_rag(data: dict[str, Any] | None) -> RAGSettings:
         retrieve_endpoint=data.get("retrieve_endpoint", "/retrieve"),
         ingest_endpoint=data.get("ingest_endpoint", "/ingest"),
         endpoint_mode=data.get("endpoint_mode", "query"),
-        mutator=mutator,
+    )
+
+
+def _parse_mutator(
+    data: dict[str, Any] | None,
+    rag_data: dict[str, Any] | None,
+) -> MutatorSettings:
+    """Parse mutator settings from dict (supports legacy rag.mutator)."""
+    mutator_data = data or {}
+    if not mutator_data and rag_data:
+        mutator_data = rag_data.get("mutator", {})
+    mutator_type = mutator_data.get("type", mutator_data.get("provider_type", "ollama"))
+    return MutatorSettings(
+        enabled=mutator_data.get("enabled", False),
+        type=mutator_type,
+        model=mutator_data.get("model", "prompt-mutator"),
+        api_key=mutator_data.get("api_key"),
+        base_url=mutator_data.get("base_url"),
+        temperature=mutator_data.get("temperature", 0.7),
+        top_p=mutator_data.get("top_p", 0.9),
+        timeout=mutator_data.get("timeout", 600),
+        max_iterations=mutator_data.get("max_iterations", 20),
+        plateau_window=mutator_data.get("plateau_window", 10),
+        plateau_tolerance=mutator_data.get("plateau_tolerance", 0.01),
+        stop_score_threshold=mutator_data.get("stop_score_threshold", 1.0),
+        extra=mutator_data.get("extra", {}),
     )
 
 
@@ -171,6 +187,18 @@ def load_config(path: Path) -> Settings:
         tests_path: ./use_cases/tests.json
         state_file: ./use_cases/db.json
         concurrency: 5
+        mutator:
+          enabled: true
+          type: ollama
+          model: prompt-mutator
+          base_url: http://localhost:11434/api/chat
+          temperature: 0.7
+          top_p: 0.9
+          timeout: 600
+          max_iterations: 20
+          plateau_window: 10
+          plateau_tolerance: 0.01
+          stop_score_threshold: 1.0
         rag:
           tests_path: ./use_cases/rag_tests.json
           service_url: http://localhost:8091
@@ -202,6 +230,7 @@ def load_config(path: Path) -> Settings:
     return Settings(
         target=_parse_provider(data["target"]),
         guard=_parse_provider(data["guard"]),
+        mutator=_parse_mutator(data.get("mutator"), data.get("rag")),
         tests_path=data.get("tests_path", "./tests.json"),
         state_file=data.get("state_file"),
         concurrency=data.get("concurrency", 5),

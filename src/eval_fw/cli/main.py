@@ -17,7 +17,7 @@ from eval_fw.config.settings import Settings, load_config
 from eval_fw.engine.loader import TestCase, TestLoader
 from eval_fw.engine.runner import RunResult, TestResult, TestRunner
 from eval_fw.engine.scorer import GuardScorer, Verdict
-from eval_fw.logging import setup_logging
+from eval_fw.log_config import setup_logging
 from eval_fw.providers.anthropic import AnthropicProvider
 from eval_fw.providers.base import LLMProvider, ProviderConfig
 from eval_fw.providers.ollama import OllamaProvider
@@ -347,16 +347,17 @@ def rag_run(
     scorer = RAGSeverityScorer()
     mutator_provider = None
     mutator_config = None
-    if settings and settings.rag.mutator.enabled:
+    if settings and settings.mutator.enabled:
         mutator_provider = get_provider(
-            settings.rag.mutator.provider_type,
-            settings.rag.mutator.to_provider_config(),
+            settings.mutator.type,
+            settings.mutator.to_provider_config(),
         )
         mutator_config = RAGMutatorConfig(
-            enabled=settings.rag.mutator.enabled,
-            max_iterations=settings.rag.mutator.max_iterations,
-            plateau_window=settings.rag.mutator.plateau_window,
-            plateau_tolerance=settings.rag.mutator.plateau_tolerance,
+            enabled=settings.mutator.enabled,
+            max_iterations=settings.mutator.max_iterations,
+            plateau_window=settings.mutator.plateau_window,
+            plateau_tolerance=settings.mutator.plateau_tolerance,
+            stop_score_threshold=settings.mutator.stop_score_threshold,
         )
     runner = RAGSessionRunner(
         client,

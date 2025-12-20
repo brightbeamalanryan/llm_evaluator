@@ -1,4 +1,5 @@
 """Ollama provider adapter - for local LLM models."""
+import json
 
 import httpx
 
@@ -18,18 +19,28 @@ class OllamaProvider(LLMProvider):
         return self.config.base_url or DEFAULT_OLLAMA_URL
 
     def _build_payload(self, system_prompt: str, user_prompt: str) -> dict:
-        return {
-            "model": self.config.model,
+        user_prompt_obj = json.loads(user_prompt)
+        payload = {
+            "model": "prompt-mutator",  # or self.config.model
             "stream": False,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "goal": user_prompt_obj.get("goal"),
+                            "system_prompt": user_prompt_obj.get("system_prompt"),
+                            "history": user_prompt_obj.get("history"),
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
             ],
-            "options": {
-                "temperature": self.config.temperature,
-                "top_p": self.config.top_p,
-            },
         }
+
+        print(json.dumps(payload, ensure_ascii=False))
+
+        return payload
 
     def _parse_response(self, data: dict) -> LLMResponse:
         msg = data.get("message", {})
