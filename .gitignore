@@ -10,3 +10,5 @@ wheels/
 .venv
 .idea
 src/logs
+logs/eval-fw.log logs/log.txt
+logs/

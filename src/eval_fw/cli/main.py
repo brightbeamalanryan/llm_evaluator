@@ -30,6 +30,7 @@ from eval_fw.rag import (
     RAGClient,
     RAGTestLoader,
     RAGSeverityScorer,
+    RAGGuardScorer,
     RAGSessionRunner,
 )
 from eval_fw.rag.runner import RAGMutatorConfig
@@ -344,7 +345,17 @@ def rag_run(
         retrieve_endpoint=resolved_retrieve_endpoint,
         ingest_endpoint=resolved_ingest_endpoint,
     )
-    scorer = RAGSeverityScorer()
+    guard_scorer = None
+    if settings:
+        guard_provider = get_provider(
+            settings.guard.type,
+            settings.guard.to_provider_config(),
+        )
+        guard_scorer = RAGGuardScorer(guard_provider)
+    else:
+        logger.warning("RAG guard scorer disabled; no config file provided")
+
+    scorer = RAGSeverityScorer(guard_scorer=guard_scorer)
     mutator_provider = None
     mutator_config = None
     if settings and settings.mutator.enabled:
@@ -375,6 +386,12 @@ def rag_run(
         results.append(result)
         status = "[bold green]PASS[/bold green]" if result.passed else "[bold red]FAIL[/bold red]"
         console.print(f"  {tc.id}: {status}")
+        if result.guard_result:
+            logger.info(
+                "RAG guard verdict id=%s verdict=%s",
+                tc.id,
+                result.guard_result.verdict.value,
+            )
         logger.info(
             "Completed RAG test %s passed=%s severity=%.2f",
             tc.id,

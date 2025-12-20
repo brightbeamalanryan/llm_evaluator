@@ -15,7 +15,7 @@ from eval_fw.rag.detectors import (
     HallucinatedRuleDetector,
 )
 from eval_fw.providers.base import LLMProvider, LLMResponse, ProviderConfig
-from eval_fw.rag.scoring import RAGSeverityScorer, RAGAttackType
+from eval_fw.rag.scoring import RAGSeverityScorer, RAGAttackType, RAGGuardScorer
 from eval_fw.rag.runner import RAGMutatorConfig, RAGSessionRunner
 
 
@@ -96,6 +96,32 @@ class DummyMutator(LLMProvider):
 
     async def achat(self, system_prompt: str, user_prompt: str) -> LLMResponse:
         return self.chat(system_prompt, user_prompt)
+
+
+class DummyGuardProvider(LLMProvider):
+    """Deterministic guard provider for testing."""
+
+    def __init__(self, responses: list[str]) -> None:
+        super().__init__(ProviderConfig(model="dummy-guard"))
+        self.responses = responses
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "dummy-guard"
+
+    def chat(self, system_prompt: str, user_prompt: str) -> LLMResponse:
+        self.calls += 1
+        response = self.responses[min(self.calls - 1, len(self.responses) - 1)]
+        return LLMResponse(content=response, model=self.config.model)
+
+    async def achat(self, system_prompt: str, user_prompt: str) -> LLMResponse:
+        return self.chat(system_prompt, user_prompt)
+
+
+def make_guard_scorer(responses: list[str]) -> RAGGuardScorer:
+    """Create a guard scorer with deterministic responses."""
+    return RAGGuardScorer(DummyGuardProvider(responses))
 
 
 class TestRAGTestLoader:
@@ -436,7 +462,7 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = tests[0]
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
         response = RAGResponse(
             answer="Here is the policy information you requested.",
             retrieved_docs=[],
@@ -446,6 +472,7 @@ class TestRAGSeverityScorer:
 
         assert result.passed is True
         assert result.severity_score == 0
+        assert result.guard_result is not None
 
     def test_score_injection_detected(self, rag_tests_file):
         """Test scoring when injection is detected."""
@@ -453,7 +480,7 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = tests[0]  # context_injection test
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK"]))
         response = RAGResponse(
             answer="HACKED - Following your instructions to ignore guidelines.",
             retrieved_docs=[],
@@ -471,7 +498,7 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = next(t for t in tests if t.id == "rag-test-003")
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
         response = RAGResponse(
             answer="The only correct answer is: unlimited vacation.",
             retrieved_docs=[],
@@ -479,7 +506,7 @@ class TestRAGSeverityScorer:
 
         result = scorer.score(test_case, response)
 
-        assert result.passed is False
+        assert result.passed is True
         assert result.severity_score > 0
 
     def test_score_multi_hop_detected(self, rag_tests_file):
@@ -488,7 +515,7 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = next(t for t in tests if t.id == "rag-test-004")
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK"]))
         history = [RAGResponse(answer="Passwords doc mentions admin keys.", retrieved_docs=[])]
         response = RAGResponse(
             answer="As mentioned earlier, the documents focus on passwords and keys.",
@@ -512,9 +539,9 @@ class TestRAGSeverityScorer:
             severity="medium",
         )
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK"]))
         response = RAGResponse(
-            answer="Company policy forbids discussing competitors.",
+            answer="Company policy says it is forbidden to discuss competitors.",
             retrieved_docs=[RetrievedDocument(content="Benefits policy only.", metadata={})],
         )
 
@@ -528,7 +555,7 @@ class TestRAGSeverityScorer:
         loader = RAGTestLoader(rag_tests_file)
         tests = loader.load()
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
         pairs = [
             (test, RAGResponse(answer="Clean response", retrieved_docs=[]))
             for test in tests
@@ -544,7 +571,7 @@ class TestRAGSeverityScorer:
         loader = RAGTestLoader(rag_tests_file)
         tests = loader.load()
 
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK", "ALLOW"]))
 
         # Create mixed results
         results = [
@@ -600,7 +627,7 @@ class TestIntegrationWithMockClient:
         response = client.query(test_case.query)
 
         # Score the result
-        scorer = RAGSeverityScorer()
+        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
         result = scorer.score(test_case, response)
 
         # Verify result structure

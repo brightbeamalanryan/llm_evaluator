@@ -14,7 +14,7 @@ target:
 # Guard model for classification (evaluates target responses)
 guard:
   type: ollama
-  model: llama3.2
+  model: llama3.1:8b
   temperature: 0.1  # Lower temperature for more consistent classification
 
 # Mutator model for RAG prompt evolution
@@ -26,7 +26,7 @@ mutator:
   temperature: 0.7
   top_p: 0.9
   timeout: 600
-  max_iterations: 20
+  max_iterations: 100
   plateau_window: 10
   plateau_tolerance: 0.01
   stop_score_threshold: 1.0

@@ -10,7 +10,12 @@ from eval_fw.rag.detectors import (
     HallucinatedRuleDetector,
     DetectionResult,
 )
-from eval_fw.rag.scoring import RAGSeverityScorer, RAGAttackType, RAGTestResult
+from eval_fw.rag.scoring import (
+    RAGSeverityScorer,
+    RAGAttackType,
+    RAGTestResult,
+    RAGGuardScorer,
+)
 from eval_fw.rag.runner import RAGSessionRunner, RAGSession
 
 __all__ = [
@@ -30,6 +35,7 @@ __all__ = [
     "RAGSeverityScorer",
     "RAGAttackType",
     "RAGTestResult",
+    "RAGGuardScorer",
     "RAGSessionRunner",
     "RAGSession",
 ]
