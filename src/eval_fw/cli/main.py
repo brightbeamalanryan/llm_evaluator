@@ -1,10 +1,11 @@
 """CLI entry point for the evaluation framework."""
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import typer
 from rich.console import Console
@@ -284,12 +285,14 @@ def rag_run(
 ) -> None:
     """Run RAG security test cases against a RAG service."""
     settings = None
-    if config_file:
-        try:
-            settings = load_config(config_file)
-        except Exception as e:
-            console.print(f"[bold red]Error loading config:[/bold red] {e}")
-            raise typer.Exit(1)
+    if not config_file:
+        console.print("[bold red]RAG scoring requires --config with guard settings.[/bold red]")
+        raise typer.Exit(1)
+    try:
+        settings = load_config(config_file)
+    except Exception as e:
+        console.print(f"[bold red]Error loading config:[/bold red] {e}")
+        raise typer.Exit(1)
 
     log_dir = Path(settings.log_dir) if settings else Path("./logs")
     log_path = setup_logging(log_dir)
@@ -325,8 +328,9 @@ def rag_run(
         console.print("[bold red]Invalid endpoint mode.[/bold red] Use query, retrieve, or ingest.")
         raise typer.Exit(1)
 
-    loader = RAGTestLoader(tests_path)
-    test_cases = loader.load()
+    state_file = Path(settings.state_file) if settings and settings.state_file else None
+    loader = RAGTestLoader(tests_path, state_file=state_file)
+    test_cases = loader.load(skip_ran=bool(state_file))
 
     if not test_cases:
         console.print("[yellow]No RAG test cases to run.[/yellow]")
@@ -345,15 +349,11 @@ def rag_run(
         retrieve_endpoint=resolved_retrieve_endpoint,
         ingest_endpoint=resolved_ingest_endpoint,
     )
-    guard_scorer = None
-    if settings:
-        guard_provider = get_provider(
-            settings.guard.type,
-            settings.guard.to_provider_config(),
-        )
-        guard_scorer = RAGGuardScorer(guard_provider)
-    else:
-        logger.warning("RAG guard scorer disabled; no config file provided")
+    guard_provider = get_provider(
+        settings.guard.type,
+        settings.guard.to_provider_config(),
+    )
+    guard_scorer = RAGGuardScorer(guard_provider)
 
     scorer = RAGSeverityScorer(guard_scorer=guard_scorer)
     mutator_provider = None
@@ -388,9 +388,11 @@ def rag_run(
         console.print(f"  {tc.id}: {status}")
         if result.guard_result:
             logger.info(
-                "RAG guard verdict id=%s verdict=%s",
+                "RAG guard verdict id=%s verdict=%s severity=%.2f notes=%s",
                 tc.id,
                 result.guard_result.verdict.value,
+                result.guard_result.severity_score,
+                result.guard_result.notes,
             )
         logger.info(
             "Completed RAG test %s passed=%s severity=%.2f",
@@ -420,6 +422,22 @@ def rag_run(
         summary.get("avg_severity", 0),
         summary.get("max_severity", 0),
     )
+    if settings and settings.state_file:
+        state_path = Path(settings.state_file)
+        existing: dict[str, Any] = {}
+        if state_path.exists():
+            try:
+                existing = json.loads(state_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                logger.warning("RAG state file invalid JSON; overwriting: %s", state_path)
+        ran_ids = set(existing.get("ran", [])) if isinstance(existing, dict) else set()
+        ran_ids.update(r.test_case.id for r in results if r.passed)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"ran": sorted(ran_ids)}, indent=2),
+            encoding="utf-8",
+        )
+        logger.info("RAG state updated path=%s count=%d", state_path, len(ran_ids))
 
     client.close()
 

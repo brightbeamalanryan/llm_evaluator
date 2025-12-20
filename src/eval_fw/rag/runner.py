@@ -129,7 +129,7 @@ class RAGSessionRunner:
         return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
     def _log_test_header(self, test_case: RAGTestCase, endpoint_mode: EndpointMode) -> None:
-        logger.info("RAG test begin ================================================")
+        logger.info("\n\nRAG test begin ================= %s ===============================\n\n", test_case.description)
         logger.info("RAG test id=%s", test_case.id)
         logger.info("RAG test description=%s", test_case.description)
         logger.info("RAG test attack_type=%s", test_case.attack_type)

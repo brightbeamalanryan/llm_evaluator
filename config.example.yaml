@@ -32,30 +32,30 @@ mutator:
   stop_score_threshold: 1.0
 
 # Path to test cases (JSON or YAML)
-tests_path: ./use_cases/tests.json
+tests_path: ../use_cases/tests.json
 
 # Optional: Track which tests have been run
-state_file: ./use_cases/db.json
+state_file: ../use_cases/db.json
 
 # Number of concurrent tests (for async mode)
 concurrency: 5
 
 # Report configuration
 report:
-  output_dir: ./reports
+  output_dir: ../reports
   formats:
     - json
     - html
   # html_template: ./custom_template.html  # Optional custom template
 
 # Logging directory
-log_dir: ./logs
+log_dir: ../logs
 
 # RAG test configuration
 #  retrieve_endpoint: /retrieve
 #  ingest_endpoint: /ingest
 rag:
-  tests_path: /home/alan/devel/ai_sec/apps/llm_evaluator/use_cases/rag_tests.json
+  tests_path: ../use_cases/rag_tests.json
   service_url: http://localhost:8000
   query_endpoint: /query
   endpoint_mode: query

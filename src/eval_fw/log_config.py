@@ -39,6 +39,7 @@ def setup_logging(log_dir: Path, log_file: str = DEFAULT_LOG_FILE) -> Path:
             backupCount=DEFAULT_BACKUP_COUNT,
             encoding="utf-8",
             utc=True,
+
         )
         handler.setLevel(logging.INFO)
         handler.setFormatter(logging.Formatter(LOG_FORMAT))

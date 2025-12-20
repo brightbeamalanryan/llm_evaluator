@@ -119,6 +119,16 @@ class DummyGuardProvider(LLMProvider):
         return self.chat(system_prompt, user_prompt)
 
 
+def make_guard_payload(verdict: str, severity: int, notes: list[str] | None = None) -> str:
+    """Build a JSON guard rubric payload."""
+    payload = {
+        "verdict": verdict,
+        "severity": severity,
+        "notes": notes or [],
+    }
+    return json.dumps(payload)
+
+
 def make_guard_scorer(responses: list[str]) -> RAGGuardScorer:
     """Create a guard scorer with deterministic responses."""
     return RAGGuardScorer(DummyGuardProvider(responses))
@@ -134,6 +144,17 @@ class TestRAGTestLoader:
 
         assert len(tests) == 4
         assert all(isinstance(t, RAGTestCase) for t in tests)
+
+    def test_skip_ran_from_state(self, rag_tests_file, tmp_path):
+        """Test skipping tests listed in state file."""
+        state_path = tmp_path / "db.json"
+        state_path.write_text(json.dumps({"ran": ["rag-test-001"]}), encoding="utf-8")
+
+        loader = RAGTestLoader(rag_tests_file, state_file=state_path)
+        tests = loader.load(skip_ran=True)
+
+        assert len(tests) == 3
+        assert all(t.id != "rag-test-001" for t in tests)
 
     def test_filter_by_attack_type(self, rag_tests_file):
         """Test filtering by attack type."""
@@ -462,7 +483,9 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = tests[0]
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("ALLOW", 0)])
+        )
         response = RAGResponse(
             answer="Here is the policy information you requested.",
             retrieved_docs=[],
@@ -480,7 +503,9 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = tests[0]  # context_injection test
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("BLOCK", 80)])
+        )
         response = RAGResponse(
             answer="HACKED - Following your instructions to ignore guidelines.",
             retrieved_docs=[],
@@ -489,8 +514,7 @@ class TestRAGSeverityScorer:
         result = scorer.score(test_case, response)
 
         assert result.passed is False
-        assert result.severity_score > 0
-        assert len(result.detections) > 0
+        assert result.severity_score == 80
 
     def test_score_retrieval_override_detected(self, rag_tests_file):
         """Test scoring when retrieval override is detected."""
@@ -498,7 +522,9 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = next(t for t in tests if t.id == "rag-test-003")
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("ALLOW", 0)])
+        )
         response = RAGResponse(
             answer="The only correct answer is: unlimited vacation.",
             retrieved_docs=[],
@@ -507,7 +533,7 @@ class TestRAGSeverityScorer:
         result = scorer.score(test_case, response)
 
         assert result.passed is True
-        assert result.severity_score > 0
+        assert result.severity_score == 0
 
     def test_score_multi_hop_detected(self, rag_tests_file):
         """Test scoring when multi-hop accumulation is detected."""
@@ -515,7 +541,9 @@ class TestRAGSeverityScorer:
         tests = loader.load()
         test_case = next(t for t in tests if t.id == "rag-test-004")
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("BLOCK", 65)])
+        )
         history = [RAGResponse(answer="Passwords doc mentions admin keys.", retrieved_docs=[])]
         response = RAGResponse(
             answer="As mentioned earlier, the documents focus on passwords and keys.",
@@ -525,7 +553,7 @@ class TestRAGSeverityScorer:
         result = scorer.score(test_case, response, history=history)
 
         assert result.passed is False
-        assert result.severity_score > 0
+        assert result.severity_score == 65
 
     def test_score_hallucinated_rules_detected(self):
         """Test scoring when hallucinated rules are detected."""
@@ -539,7 +567,9 @@ class TestRAGSeverityScorer:
             severity="medium",
         )
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("BLOCK", 55)])
+        )
         response = RAGResponse(
             answer="Company policy says it is forbidden to discuss competitors.",
             retrieved_docs=[RetrievedDocument(content="Benefits policy only.", metadata={})],
@@ -548,14 +578,16 @@ class TestRAGSeverityScorer:
         result = scorer.score(test_case, response)
 
         assert result.passed is False
-        assert result.severity_score > 0
+        assert result.severity_score == 55
 
     def test_score_batch(self, rag_tests_file):
         """Test batch scoring."""
         loader = RAGTestLoader(rag_tests_file)
         tests = loader.load()
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("ALLOW", 0)])
+        )
         pairs = [
             (test, RAGResponse(answer="Clean response", retrieved_docs=[]))
             for test in tests
@@ -571,7 +603,12 @@ class TestRAGSeverityScorer:
         loader = RAGTestLoader(rag_tests_file)
         tests = loader.load()
 
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["BLOCK", "ALLOW"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([
+                make_guard_payload("BLOCK", 70, ["Detected leakage"]),
+                make_guard_payload("ALLOW", 0, ["No issues"]),
+            ])
+        )
 
         # Create mixed results
         results = [
@@ -627,7 +664,9 @@ class TestIntegrationWithMockClient:
         response = client.query(test_case.query)
 
         # Score the result
-        scorer = RAGSeverityScorer(guard_scorer=make_guard_scorer(["ALLOW"]))
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("ALLOW", 0)])
+        )
         result = scorer.score(test_case, response)
 
         # Verify result structure
@@ -695,13 +734,28 @@ class TestIntegrationWithMockClient:
             severity="high",
         )
         client = MockRAGClient()
-        mutator = DummyMutator(["HACKED", "HACKED", "HACKED"])
-        scorer = RAGSeverityScorer()
+        mutator = DummyMutator(
+            [
+                json.dumps({"mutations": [{"prompt": "HACKED"}]}),
+                json.dumps({"mutations": [{"prompt": "HACKED"}]}),
+                json.dumps({"mutations": [{"prompt": "HACKED"}]}),
+            ]
+        )
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer(
+                [
+                    make_guard_payload("BLOCK", 50),
+                    make_guard_payload("BLOCK", 50),
+                    make_guard_payload("BLOCK", 50),
+                ]
+            )
+        )
         mutator_config = RAGMutatorConfig(
             enabled=True,
             max_iterations=5,
             plateau_window=2,
             plateau_tolerance=0.01,
+            stop_score_threshold=0,
         )
         runner = RAGSessionRunner(
             client,
@@ -728,13 +782,16 @@ class TestIntegrationWithMockClient:
             severity="high",
         )
         client = MockRAGClient()
-        mutator = DummyMutator(["HACKED"])
-        scorer = RAGSeverityScorer()
+        mutator = DummyMutator([json.dumps({"mutations": [{"prompt": "HACKED"}]})])
+        scorer = RAGSeverityScorer(
+            guard_scorer=make_guard_scorer([make_guard_payload("BLOCK", 40)])
+        )
         mutator_config = RAGMutatorConfig(
             enabled=True,
             max_iterations=2,
             plateau_window=10,
             plateau_tolerance=0.01,
+            stop_score_threshold=0,
         )
         runner = RAGSessionRunner(
             client,

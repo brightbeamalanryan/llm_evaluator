@@ -59,19 +59,36 @@ class RAGTestCase:
 class RAGTestLoader:
     """Loader for RAG security test cases from JSON files."""
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, state_file: Path | None = None) -> None:
         """Initialize the loader.
 
         Args:
             path: Path to the JSON file containing test cases.
                   Defaults to use_cases/rag_tests.json.
+            state_file: Optional path to track which tests have been run.
         """
         if path is None:
             path = Path(__file__).parent.parent.parent.parent / "use_cases" / "rag_tests.json"
         self.path = path
+        self._state_file = state_file
+        self._ran_ids: set[str] = set()
+        if state_file and state_file.exists():
+            self._load_state()
         self._tests: list[RAGTestCase] = []
 
-    def load(self) -> list[RAGTestCase]:
+    def _load_state(self) -> None:
+        """Load previously run test IDs from state file."""
+        if not self._state_file:
+            return
+        try:
+            data = json.loads(self._state_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            self._ran_ids = set()
+            return
+        if isinstance(data, dict):
+            self._ran_ids = set(data.get("ran", []))
+
+    def load(self, skip_ran: bool = False) -> list[RAGTestCase]:
         """Load test cases from the JSON file."""
         if not self.path.exists():
             return []
@@ -79,7 +96,10 @@ class RAGTestLoader:
         with self.path.open() as f:
             data = json.load(f)
 
-        self._tests = [RAGTestCase.from_dict(id, tc_data) for id, tc_data in data.items()]
+        tests = [RAGTestCase.from_dict(id, tc_data) for id, tc_data in data.items()]
+        if skip_ran and self._ran_ids:
+            tests = [t for t in tests if t.id not in self._ran_ids]
+        self._tests = tests
         return self._tests
 
     @property
