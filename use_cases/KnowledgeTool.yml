@@ -1,0 +1,57 @@
+builtin: 1.0.0
+info:
+  named_tool_id: knowledge
+  name: Knowledge Tool
+  provider: knowledge
+  description: A tool to query the knowledge base to retrieve information.
+  version: 1.0.0
+  author: Tars
+  tags:
+    - knowledge
+    - retrieval
+tools:
+  KnowledgeRetrieveTool:
+    name: knowledge_retrieve
+    description: Useful for querying the knowledge base to retrieve information.
+      Input should be a search query.
+    x-tars-config:
+      is_enabled: true
+      is_self_query: false
+    x-tars-fixed:
+      account_id: vwdLAy1OW
+      kbids:
+        - P4XuCf9C
+      top_k: 4
+      top_n: 20
+      alpha: 0.75
+      hybrid_search: true
+    parameters:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: The search query to look up on the knowledge base
+    output:
+      type: array
+      description: List of search results
+      items:
+        type: object
+        properties:
+          section_name:
+            type: string
+            description: Optional section name of the retrieved content
+          page_content:
+            type: string
+            description: Content of the retrieved page
+      examples:
+        success:
+          summary: Successful knowledge retrieval
+          description: A typical successful response with retrieved knowledge
+          content:
+            - section_name: Lorem Ipsum Section
+              page_content: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
+                eiusmod tempor incididunt ut labore et dolore magna aliqua.
+            - page_content: Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
+                nisi ut aliquip ex ea commodo consequat.
