@@ -306,6 +306,7 @@ def rag_run(
     tests_path = tests_file or Path(
         settings.rag.tests_path if settings else default_tests_path
     )
+    resolved_request_profile = settings.rag.request_profile if settings else None
     resolved_service_url = (
         service_url or (settings.rag.service_url if settings else "http://localhost:8091")
     )
@@ -321,6 +322,14 @@ def rag_run(
     resolved_endpoint_mode = (
         endpoint_mode or (settings.rag.endpoint_mode if settings else "query")
     )
+    if (
+        resolved_request_profile
+        and resolved_endpoint_mode == "query"
+        and service_url is None
+    ):
+        profile_url = resolved_request_profile.get("url")
+        if profile_url:
+            resolved_service_url = profile_url
 
     console.print(Panel("[bold cyan]RAG Security Test Runner[/bold cyan]"))
     console.print(f"\n[dim]Loading RAG tests from:[/dim] {tests_path}")
@@ -350,6 +359,7 @@ def rag_run(
         query_endpoint=resolved_query_endpoint,
         retrieve_endpoint=resolved_retrieve_endpoint,
         ingest_endpoint=resolved_ingest_endpoint,
+        request_profile=resolved_request_profile,
     )
     guard_provider = get_provider(
         settings.guard.type,

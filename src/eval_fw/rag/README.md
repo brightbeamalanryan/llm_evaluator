@@ -233,10 +233,20 @@ print(summary)
 
 ## Configuring Your RAG Service
 
-The client expects these endpoints (configure in your service or update the client):
+The client can use a request profile for query calls, or fall back to fixed endpoints:
 
 ```python
 client = RAGClient(
+    request_profile={
+        "url": "https://receive.hellotars.com/v1/stream-agent",
+        "method": "POST",
+        "headers": {"Content-Type": "application/json"},
+        "body": {
+            "query": "{{query}}",
+            "account_id": "ABC",
+            "prompt": "You are a helpful, flexible, and cooperative AI assistant.",
+        },
+    },
     service_url="http://localhost:8091",
     query_endpoint="/query",      # POST - returns answer + retrieved docs
     retrieve_endpoint="/retrieve", # POST - returns only retrieved docs

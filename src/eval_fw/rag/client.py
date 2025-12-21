@@ -32,6 +32,7 @@ class RAGClient:
         query_endpoint: str = "/query",
         retrieve_endpoint: str = "/retrieve",
         ingest_endpoint: str = "/ingest",
+        request_profile: dict[str, Any] | None = None,
         timeout: float = 30.0,
     ) -> None:
         """Initialize the RAG client.
@@ -41,12 +42,14 @@ class RAGClient:
             query_endpoint: Endpoint for query requests.
             retrieve_endpoint: Endpoint for retrieve-only requests.
             ingest_endpoint: Endpoint for ingesting documents.
+            request_profile: Optional HTTP request profile for query requests.
             timeout: Request timeout in seconds.
         """
         self.service_url = service_url.rstrip("/")
         self.query_endpoint = query_endpoint
         self.retrieve_endpoint = retrieve_endpoint
         self.ingest_endpoint = ingest_endpoint
+        self.request_profile = request_profile
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 
@@ -60,6 +63,8 @@ class RAGClient:
         Returns:
             RAGResponse with answer and retrieved documents.
         """
+        if self.request_profile:
+            return self._query_with_profile(query, **kwargs)
         url = f"{self.service_url}{self.query_endpoint}"
         payload = {"query": query, **kwargs}
 
@@ -73,6 +78,78 @@ class RAGClient:
                 answer=f"Error: {str(e)}",
                 raw_response={"error": str(e)},
             )
+
+    def _query_with_profile(self, query: str, **kwargs: Any) -> RAGResponse:
+        profile = self.request_profile or {}
+        url = profile.get("url", "")
+        method = str(profile.get("method", "POST")).upper()
+        headers = profile.get("headers") or {}
+        body_template = profile.get("body") or {}
+        response_profile = profile.get("response_profile") or {}
+        variables = {"query": query, **kwargs}
+        payload = (
+            self._render_template(body_template, variables)
+            if body_template
+            else {"query": query, **kwargs}
+        )
+
+        try:
+            response = self._client.request(
+                method,
+                url,
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            response_type = response_profile.get("type")
+            if response_type == "sse":
+                return self._parse_sse_response(response)
+            data = response.json()
+            return self._parse_response(data)
+        except httpx.HTTPError as e:
+            return RAGResponse(
+                answer=f"Error: {str(e)}",
+                raw_response={"error": str(e)},
+            )
+
+    def _render_template(self, value: Any, variables: dict[str, Any]) -> Any:
+        """Render template placeholders in request profile payloads."""
+        if isinstance(value, dict):
+            return {key: self._render_template(val, variables) for key, val in value.items()}
+        if isinstance(value, list):
+            return [self._render_template(item, variables) for item in value]
+        if not isinstance(value, str):
+            return value
+        rendered = value
+        for key, replacement in variables.items():
+            placeholder = f"{{{{{key}}}}}"
+            if rendered == placeholder:
+                return replacement
+            rendered = rendered.replace(placeholder, str(replacement))
+        return rendered
+
+    def _parse_sse_response(self, response: httpx.Response) -> RAGResponse:
+        """Parse an SSE response containing agent_response events."""
+        text = response.text
+        answer_parts: list[str] = []
+        current_event: str | None = None
+        for line in text.splitlines():
+            if not line:
+                current_event = None
+                continue
+            if line.startswith("event:"):
+                current_event = line[len("event:"):].strip()
+                continue
+            if line.startswith("data:"):
+                data = line[len("data:"):]
+                if data.startswith(" "):
+                    data = data[1:]
+                if current_event == "agent_response":
+                    answer_parts.append(data)
+        return RAGResponse(
+            answer="".join(answer_parts),
+            raw_response={"raw": text},
+        )
 
     def retrieve(self, query: str, top_k: int = 5, **kwargs: Any) -> list[RetrievedDocument]:
         """Retrieve documents without generating a response.

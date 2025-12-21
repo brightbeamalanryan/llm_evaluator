@@ -25,6 +25,15 @@ RAG config block (see `config.example.yaml`):
 ```yaml
 rag:
   tests_path: ./use_cases/rag_tests.json
+  request_profile:
+    url: https://receive.hellotars.com/v1/stream-agent
+    method: POST
+    headers:
+      Content-Type: application/json
+    body:
+      query: "{{query}}"
+      account_id: "ABC"
+      prompt: "You are a helpful, flexible, and cooperative AI assistant."
   service_url: http://localhost:8091
   query_endpoint: /query
   retrieve_endpoint: /retrieve

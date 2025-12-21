@@ -54,6 +54,7 @@ class RAGSettings:
     retrieve_endpoint: str = "/retrieve"
     ingest_endpoint: str = "/ingest"
     endpoint_mode: str = "query"
+    request_profile: dict[str, Any] | None = None
 
 
 @dataclass
@@ -131,6 +132,28 @@ def _parse_rag(data: dict[str, Any] | None) -> RAGSettings:
     """Parse RAG settings from dict."""
     if not data:
         return RAGSettings()
+    request_profile = None
+    profile_data = data.get("request_profile")
+    if profile_data:
+        if not isinstance(profile_data, dict):
+            raise ValueError("rag.request_profile must be a mapping")
+        url = profile_data.get("url")
+        if not url:
+            raise ValueError("rag.request_profile.url is required")
+        response_profile = profile_data.get("response_profile")
+        if response_profile and not isinstance(response_profile, dict):
+            raise ValueError("rag.request_profile.response_profile must be a mapping")
+        if response_profile:
+            response_type = response_profile.get("type")
+            if response_type and response_type not in {"sse"}:
+                raise ValueError("rag.request_profile.response_profile.type must be 'sse'")
+        request_profile = {
+            "url": url,
+            "method": profile_data.get("method", "POST"),
+            "headers": profile_data.get("headers", {}),
+            "body": profile_data.get("body", {}),
+            "response_profile": response_profile,
+        }
     return RAGSettings(
         tests_path=data.get("tests_path", "./use_cases/rag_tests.json"),
         service_url=data.get("service_url", "http://localhost:8000"),
@@ -138,6 +161,7 @@ def _parse_rag(data: dict[str, Any] | None) -> RAGSettings:
         retrieve_endpoint=data.get("retrieve_endpoint", "/retrieve"),
         ingest_endpoint=data.get("ingest_endpoint", "/ingest"),
         endpoint_mode=data.get("endpoint_mode", "query"),
+        request_profile=request_profile,
     )
 
 
@@ -201,6 +225,15 @@ def load_config(path: Path) -> Settings:
           stop_score_threshold: 1.0
         rag:
           tests_path: ./use_cases/rag_tests.json
+          request_profile:
+            url: https://receive.hellotars.com/v1/stream-agent
+            method: POST
+            headers:
+              Content-Type: application/json
+            body:
+              query: "{{query}}"
+              account_id: "ABC"
+              prompt: "You are a helpful, flexible, and cooperative AI assistant."
           service_url: http://localhost:8091
           query_endpoint: /query
           retrieve_endpoint: /retrieve
