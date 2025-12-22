@@ -109,3 +109,43 @@ def test_request_profile_sse_response_parsing() -> None:
     response = client.query("What time is it?")
 
     assert response.answer == "Yes, I can"
+
+
+def test_request_profile_chatbase_response_parsing() -> None:
+    body = (
+        'f:{"messageId":"msg-jgbFiYeabdSWZvosxPMN7yEv"}\n'
+        '0:"You "\n'
+        '0:"can "\n'
+        '0:"contact "\n'
+        '0:"the "\n'
+        '0:"Chatbase "\n'
+        '0:"team "\n'
+        '0:"by "\n'
+        '8:[{"id":"820897be-14fc-4b57-a81d-f9bb7eacc4f3","followUpId":null,'
+        '"showQnaMatched":false,"matchedSources":[]}]\n'
+        '0:"email "\n'
+        '0:"at:\\n\\n"\n'
+        '0:"support@chatbase.co"\n'
+        'e:{"finishReason":"stop","usage":{"promptTokens":9600,"completionTokens":25},'
+        '"isContinued":false}\n'
+        'd:{"finishReason":"stop","usage":{"promptTokens":9600,"completionTokens":25}}\n'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body.encode("utf-8"))
+
+    transport = httpx.MockTransport(handler)
+    client = RAGClient(
+        request_profile={
+            "url": "https://www.chatbase.co/api/chat/z2c2HSfKnCTh5J4650V0I",
+            "method": "POST",
+            "headers": {"Content-Type": "application/json"},
+            "body": {"messages": [{"role": "user", "content": "{{query}}"}]},
+            "response_profile": {"type": "chatbase"},
+        }
+    )
+    client._client = httpx.Client(transport=transport)
+
+    response = client.query("How do I reach Chatbase?")
+
+    assert response.answer == "You can contact the Chatbase team by email at:\n\nsupport@chatbase.co"

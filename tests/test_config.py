@@ -90,6 +90,45 @@ class TestLoadConfig:
         assert settings.concurrency == 5
         assert settings.report.formats == ["json"]
 
+    def test_load_rag_profiles(self, tmp_path):
+        """Test loading RAG profiles."""
+        config = {
+            "target": {"type": "ollama", "model": "phi"},
+            "guard": {"type": "ollama", "model": "llama3.2"},
+            "rag": {
+                "profiles": [
+                    {
+                        "name": "local",
+                        "active": True,
+                        "base_url": "http://localhost:8000",
+                        "endpoint_mode": "query",
+                    }
+                ]
+            },
+        }
+        path = tmp_path / "rag.yaml"
+        with path.open("w") as f:
+            yaml.dump(config, f)
+
+        settings = load_config(path)
+
+        assert settings.rag.profiles[0].name == "local"
+        assert settings.rag.profiles[0].active is True
+
+    def test_rejects_legacy_rag_service_url(self, tmp_path):
+        """Test error when legacy RAG service_url is used."""
+        config = {
+            "target": {"type": "ollama", "model": "phi"},
+            "guard": {"type": "ollama", "model": "llama3.2"},
+            "rag": {"service_url": "http://localhost:8000"},
+        }
+        path = tmp_path / "legacy.yaml"
+        with path.open("w") as f:
+            yaml.dump(config, f)
+
+        with pytest.raises(ValueError, match="rag.service_url"):
+            load_config(path)
+
     def test_missing_target(self, tmp_path):
         """Test error when target is missing."""
         config = {"guard": {"type": "ollama", "model": "phi"}}

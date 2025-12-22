@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from logging.handlers import TimedRotatingFileHandler
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 DEFAULT_LOG_FILE = "eval-fw.log"
@@ -15,7 +15,7 @@ def _has_handler(logger: logging.Logger, log_path: Path) -> bool:
     """Return True if a handler already writes to the given log path."""
     resolved = log_path.resolve()
     for handler in logger.handlers:
-        if isinstance(handler, TimedRotatingFileHandler):
+        if isinstance(handler, RotatingFileHandler):
             handler_path = Path(handler.baseFilename).resolve()
             if handler_path == resolved:
                 return True
@@ -23,7 +23,7 @@ def _has_handler(logger: logging.Logger, log_path: Path) -> bool:
 
 
 def setup_logging(log_dir: Path, log_file: str = DEFAULT_LOG_FILE) -> Path:
-    """Configure hourly rotating file logging and return the log path."""
+    """Configure per-run rotating file logging and return the log path."""
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / log_file
@@ -32,15 +32,13 @@ def setup_logging(log_dir: Path, log_file: str = DEFAULT_LOG_FILE) -> Path:
     root_logger.setLevel(logging.INFO)
 
     if not _has_handler(root_logger, log_path):
-        handler = TimedRotatingFileHandler(
+        handler = RotatingFileHandler(
             log_path,
-            when="H",
-            interval=1,
             backupCount=DEFAULT_BACKUP_COUNT,
             encoding="utf-8",
-            utc=True,
-
         )
+        if log_path.exists() and log_path.stat().st_size:
+            handler.doRollover()
         handler.setLevel(logging.INFO)
         handler.setFormatter(logging.Formatter(LOG_FORMAT))
         root_logger.addHandler(handler)

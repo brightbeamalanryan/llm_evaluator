@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Optional
@@ -87,6 +88,12 @@ def print_summary(run_result: RunResult) -> None:
     table.add_row("Duration", f"{duration:.1f}s")
 
     console.print(table)
+
+
+def _slugify_profile_name(name: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", name.strip())
+    slug = slug.strip("-")
+    return slug or "profile"
 
 
 @app.command()
@@ -261,27 +268,18 @@ def rag_run(
         Optional[Path],
         typer.Option("--config", "-c", help="Path to YAML configuration file"),
     ] = None,
-    service_url: Annotated[
-        Optional[str],
-        typer.Option("--service-url", help="RAG service base URL"),
-    ] = None,
-    query_endpoint: Annotated[
-        Optional[str],
-        typer.Option("--query-endpoint", help="RAG query endpoint path"),
-    ] = None,
-    retrieve_endpoint: Annotated[
-        Optional[str],
-        typer.Option("--retrieve-endpoint", help="RAG retrieve endpoint path"),
-    ] = None,
-    ingest_endpoint: Annotated[
-        Optional[str],
-        typer.Option("--ingest-endpoint", help="RAG ingest endpoint path"),
-    ] = None,
     endpoint_mode: Annotated[
         Optional[str],
         typer.Option(
             "--endpoint-mode",
             help="Which endpoint to exercise: query, retrieve, or ingest",
+        ),
+    ] = None,
+    rag_profiles: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--rag-profile",
+            help="RAG profile name to run (repeatable, overrides active profiles)",
         ),
     ] = None,
 ) -> None:
@@ -306,61 +304,11 @@ def rag_run(
     tests_path = tests_file or Path(
         settings.rag.tests_path if settings else default_tests_path
     )
-    resolved_request_profile = settings.rag.request_profile if settings else None
-    resolved_service_url = (
-        service_url or (settings.rag.service_url if settings else "http://localhost:8091")
-    )
-    resolved_query_endpoint = (
-        query_endpoint or (settings.rag.query_endpoint if settings else "/query")
-    )
-    resolved_retrieve_endpoint = (
-        retrieve_endpoint or (settings.rag.retrieve_endpoint if settings else "/retrieve")
-    )
-    resolved_ingest_endpoint = (
-        ingest_endpoint or (settings.rag.ingest_endpoint if settings else "/ingest")
-    )
-    resolved_endpoint_mode = (
-        endpoint_mode or (settings.rag.endpoint_mode if settings else "query")
-    )
-    if (
-        resolved_request_profile
-        and resolved_endpoint_mode == "query"
-        and service_url is None
-    ):
-        profile_url = resolved_request_profile.get("url")
-        if profile_url:
-            resolved_service_url = profile_url
 
     console.print(Panel("[bold cyan]RAG Security Test Runner[/bold cyan]"))
     console.print(f"\n[dim]Loading RAG tests from:[/dim] {tests_path}")
     logger.info("Loading RAG tests from %s", tests_path)
 
-    if resolved_endpoint_mode not in {"query", "retrieve", "ingest"}:
-        console.print("[bold red]Invalid endpoint mode.[/bold red] Use query, retrieve, or ingest.")
-        raise typer.Exit(1)
-
-    state_file = Path(settings.state_file) if settings and settings.state_file else None
-    loader = RAGTestLoader(tests_path, state_file=state_file)
-    test_cases = loader.load(skip_ran=bool(state_file))
-
-    if not test_cases:
-        console.print("[yellow]No RAG test cases to run.[/yellow]")
-        raise typer.Exit(0)
-
-    table = Table(title=f"Loaded {len(test_cases)} RAG Test Cases")
-    table.add_column("ID", style="cyan")
-    table.add_column("Description", style="white", max_width=60)
-    for tc in test_cases:
-        table.add_row(tc.id, tc.description[:60] + "..." if len(tc.description) > 60 else tc.description)
-    console.print(table)
-
-    client = RAGClient(
-        service_url=resolved_service_url,
-        query_endpoint=resolved_query_endpoint,
-        retrieve_endpoint=resolved_retrieve_endpoint,
-        ingest_endpoint=resolved_ingest_endpoint,
-        request_profile=resolved_request_profile,
-    )
     guard_provider = get_provider(
         settings.guard.type,
         settings.guard.to_provider_config(),
@@ -382,150 +330,246 @@ def rag_run(
             plateau_tolerance=settings.mutator.plateau_tolerance,
             stop_score_threshold=settings.mutator.stop_score_threshold,
         )
-    threads: dict[str, dict[str, Any]] = {}
+    if not settings.rag.profiles:
+        console.print("[bold red]No RAG profiles configured in rag.profiles.[/bold red]")
+        raise typer.Exit(1)
 
-    def record_event(tc: RAGTestCase, kind: str, payload: dict[str, Any]) -> None:
-        thread = threads.setdefault(
-            tc.id,
-            {
-                "test_id": tc.id,
-                "description": tc.description,
-                "events": [],
-            },
-        )
-        thread["events"].append(
-            {
-                "kind": kind,
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "data": payload,
-            }
-        )
+    selected_profiles: list[str] = []
+    if rag_profiles:
+        for entry in rag_profiles:
+            selected_profiles.extend([item.strip() for item in entry.split(",") if item.strip()])
 
-    runner = RAGSessionRunner(
-        client,
-        mutator=mutator_provider,
-        mutator_config=mutator_config,
-        scorer=scorer,
-        event_sink=record_event,
-    )
-
-    console.print("\n[bold]Running RAG tests...[/bold]\n")
-    results = []
-    for tc in test_cases:
-        logger.info("Running RAG test %s", tc.id)
-        response, history = runner.run(tc, endpoint_mode=resolved_endpoint_mode)
-        result = scorer.score(tc, response, history=history)
-        results.append(result)
-        if result.guard_result:
-            record_event(
-                tc,
-                "guard",
-                {
-                    "verdict": result.guard_result.verdict.value,
-                    "severity": result.guard_result.severity_score,
-                    "notes": result.guard_result.notes,
-                },
+    profiles = []
+    if selected_profiles:
+        selected_set = set(selected_profiles)
+        profiles = [profile for profile in settings.rag.profiles if profile.name in selected_set]
+        missing = sorted(selected_set - {profile.name for profile in profiles})
+        if missing:
+            console.print(
+                "[bold red]Unknown RAG profile(s):[/bold red] " + ", ".join(missing)
             )
-            record_event(tc, "call", {"target": "guard", "detail": "score"})
-        status = "[bold green]PASS[/bold green]" if result.passed else "[bold red]FAIL[/bold red]"
-        console.print(f"  {tc.id}: {status}")
-        if result.guard_result:
-            logger.info(
-                "RAG guard verdict id=%s verdict=%s severity=%.2f notes=%s",
-                tc.id,
-                result.guard_result.verdict.value,
-                result.guard_result.severity_score,
-                result.guard_result.notes,
-            )
-        logger.info(
-            "Completed RAG test %s passed=%s severity=%.2f",
-            tc.id,
-            result.passed,
-            result.severity_score,
-        )
+            raise typer.Exit(1)
+    else:
+        profiles = [profile for profile in settings.rag.profiles if profile.active]
 
-    summary = scorer.summary(results)
-    summary_table = Table(title="RAG Test Summary")
-    summary_table.add_column("Metric", style="cyan")
-    summary_table.add_column("Value", style="white")
-    summary_table.add_row("Total Tests", str(summary.get("total", 0)))
-    summary_table.add_row("Passed", f"[green]{summary.get('passed', 0)}[/green]")
-    summary_table.add_row("Failed", f"[red]{summary.get('failed', 0)}[/red]")
-    summary_table.add_row("Pass Rate", f"{summary.get('pass_rate', 0) * 100:.1f}%")
-    summary_table.add_row("Avg Severity", f"{summary.get('avg_severity', 0):.1f}")
-    summary_table.add_row("Max Severity", f"{summary.get('max_severity', 0):.1f}")
-    console.print()
-    console.print(summary_table)
-    logger.info(
-        "RAG summary total=%d passed=%d failed=%d pass_rate=%.3f avg_severity=%.2f max_severity=%.2f",
-        summary.get("total", 0),
-        summary.get("passed", 0),
-        summary.get("failed", 0),
-        summary.get("pass_rate", 0),
-        summary.get("avg_severity", 0),
-        summary.get("max_severity", 0),
-    )
-    if settings and settings.state_file:
-        state_path = Path(settings.state_file)
-        existing: dict[str, Any] = {}
-        if state_path.exists():
-            try:
-                existing = json.loads(state_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                logger.warning("RAG state file invalid JSON; overwriting: %s", state_path)
-        ran_ids = set(existing.get("ran", [])) if isinstance(existing, dict) else set()
-        ran_ids.update(r.test_case.id for r in results if r.passed)
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(
-            json.dumps({"ran": sorted(ran_ids)}, indent=2),
-            encoding="utf-8",
-        )
-        logger.info("RAG state updated path=%s count=%d", state_path, len(ran_ids))
+    if not profiles:
+        console.print("[bold red]No active RAG profiles found.[/bold red]")
+        raise typer.Exit(1)
 
     report_dir = Path(settings.report.output_dir)
     report_formats = settings.report.formats
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"rag_report_{timestamp}"
-    sidecar_path = report_dir / f"rag_thread_{timestamp}.json"
-    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-    sidecar_payload = {
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "summary": summary,
-        "threads": list(threads.values()),
-    }
-    sidecar_path.write_text(
-        json.dumps(sidecar_payload, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    logger.info("RAG thread sidecar written path=%s", sidecar_path)
     rag_reporters = {
         "ascii": RAGAsciiReporter(),
     }
-    if report_formats:
-        console.print(f"\n[dim]Generating RAG reports in:[/dim] {report_dir}")
-    for fmt in report_formats:
-        fmt = fmt.strip().lower()
-        if fmt in rag_reporters:
-            try:
-                output_path = rag_reporters[fmt].generate(
-                    results=results,
-                    summary=summary,
-                    output_path=report_dir / base_name,
-                    log_path=Path(log_path),
-                    sidecar_path=sidecar_path,
-                    metadata={
-                        "Guard Model": f"{settings.guard.type}/{settings.guard.model}",
-                        "Service URL": resolved_service_url,
-                        "Endpoint Mode": resolved_endpoint_mode,
+
+    for profile in profiles:
+        profile_label = profile.name
+        slug = _slugify_profile_name(profile_label)
+        resolved_endpoint_mode = endpoint_mode or profile.endpoint_mode or "query"
+        if resolved_endpoint_mode not in {"query", "retrieve", "ingest"}:
+            console.print(
+                "[bold red]Invalid endpoint mode.[/bold red] Use query, retrieve, or ingest."
+            )
+            raise typer.Exit(1)
+
+        console.print(f"\n[bold]Profile:[/bold] {profile_label}")
+        logger.info("RAG profile start name=%s", profile_label)
+
+        state_file = Path(settings.state_file) if settings and settings.state_file else None
+        loader = RAGTestLoader(
+            tests_path,
+            state_file=state_file,
+            profile_name=profile_label,
+        )
+        test_cases = loader.load(skip_ran=bool(state_file))
+
+        if not test_cases:
+            console.print("[yellow]No RAG test cases to run.[/yellow]")
+            continue
+
+        table = Table(title=f"Loaded {len(test_cases)} RAG Test Cases")
+        table.add_column("ID", style="cyan")
+        table.add_column("Description", style="white", max_width=60)
+        for tc in test_cases:
+            table.add_row(
+                tc.id,
+                tc.description[:60] + "..." if len(tc.description) > 60 else tc.description,
+            )
+        console.print(table)
+
+        client = RAGClient(
+            service_url=(profile.base_url or "http://localhost:8000"),
+            query_endpoint=profile.query_endpoint,
+            retrieve_endpoint=profile.retrieve_endpoint,
+            ingest_endpoint=profile.ingest_endpoint,
+            request_profile=profile.request_profile,
+        )
+        threads: dict[str, dict[str, Any]] = {}
+
+        def record_event(tc: RAGTestCase, kind: str, payload: dict[str, Any]) -> None:
+            thread = threads.setdefault(
+                tc.id,
+                {
+                    "test_id": tc.id,
+                    "description": tc.description,
+                    "profile": profile_label,
+                    "events": [],
+                },
+            )
+            thread["events"].append(
+                {
+                    "kind": kind,
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                    "data": payload,
+                }
+            )
+
+        runner = RAGSessionRunner(
+            client,
+            mutator=mutator_provider,
+            mutator_config=mutator_config,
+            scorer=scorer,
+            event_sink=record_event,
+            profile_name=profile_label,
+        )
+
+        console.print("\n[bold]Running RAG tests...[/bold]\n")
+        results = []
+        for tc in test_cases:
+            logger.info("Running RAG test profile=%s id=%s", profile_label, tc.id)
+            response, history = runner.run(tc, endpoint_mode=resolved_endpoint_mode)
+            result = scorer.score(tc, response, history=history)
+            results.append(result)
+            if result.guard_result:
+                record_event(
+                    tc,
+                    "guard",
+                    {
+                        "verdict": result.guard_result.verdict.value,
+                        "severity": result.guard_result.severity_score,
+                        "notes": result.guard_result.notes,
                     },
                 )
-                console.print(f"  [green]✓[/green] {output_path}")
-                logger.info("Generated RAG report format=%s path=%s", fmt, output_path)
-            except Exception as e:
-                console.print(f"  [red]✗[/red] {fmt}: {e}")
-                logger.exception("Failed to generate RAG report format=%s", fmt)
+                record_event(tc, "call", {"target": "guard", "detail": "score"})
+            status = "[bold green]PASS[/bold green]" if result.passed else "[bold red]FAIL[/bold red]"
+            console.print(f"  {tc.id}: {status}")
+            if result.guard_result:
+                logger.info(
+                    "RAG guard verdict id=%s verdict=%s severity=%.2f notes=%s",
+                    tc.id,
+                    result.guard_result.verdict.value,
+                    result.guard_result.severity_score,
+                    result.guard_result.notes,
+                )
+            logger.info(
+                "Completed RAG test profile=%s id=%s passed=%s severity=%.2f",
+                profile_label,
+                tc.id,
+                result.passed,
+                result.severity_score,
+            )
 
-    client.close()
+        summary = scorer.summary(results)
+        summary_table = Table(title="RAG Test Summary")
+        summary_table.add_column("Metric", style="cyan")
+        summary_table.add_column("Value", style="white")
+        summary_table.add_row("Total Tests", str(summary.get("total", 0)))
+        summary_table.add_row("Passed", f"[green]{summary.get('passed', 0)}[/green]")
+        summary_table.add_row("Failed", f"[red]{summary.get('failed', 0)}[/red]")
+        summary_table.add_row("Pass Rate", f"{summary.get('pass_rate', 0) * 100:.1f}%")
+        summary_table.add_row("Avg Severity", f"{summary.get('avg_severity', 0):.1f}")
+        summary_table.add_row("Max Severity", f"{summary.get('max_severity', 0):.1f}")
+        console.print()
+        console.print(summary_table)
+        logger.info(
+            "RAG summary profile=%s total=%d passed=%d failed=%d pass_rate=%.3f avg_severity=%.2f max_severity=%.2f",
+            profile_label,
+            summary.get("total", 0),
+            summary.get("passed", 0),
+            summary.get("failed", 0),
+            summary.get("pass_rate", 0),
+            summary.get("avg_severity", 0),
+            summary.get("max_severity", 0),
+        )
+        if settings and settings.state_file:
+            state_path = Path(settings.state_file)
+            existing: dict[str, Any] = {}
+            if state_path.exists():
+                try:
+                    existing = json.loads(state_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    logger.warning("RAG state file invalid JSON; overwriting: %s", state_path)
+            ran_ids = set()
+            profiles_state = (
+                existing.get("profiles", {}) if isinstance(existing, dict) else {}
+            )
+            if isinstance(profiles_state, dict):
+                ran_ids.update(profiles_state.get(profile_label, []))
+            elif isinstance(existing, dict):
+                ran_ids.update(existing.get("ran", []))
+            ran_ids.update(r.test_case.id for r in results if not r.passed) #Invert logic for PASS/FAIL on Rag
+            payload: dict[str, Any] = {}
+            if isinstance(existing, dict):
+                payload.update(existing)
+            profiles_payload = payload.get("profiles")
+            if not isinstance(profiles_payload, dict):
+                profiles_payload = {}
+            profiles_payload[profile_label] = sorted(ran_ids)
+            payload["profiles"] = profiles_payload
+            if len(profiles_payload) == 1:
+                payload["ran"] = sorted(ran_ids)
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
+            logger.info(
+                "RAG state updated profile=%s path=%s count=%d",
+                profile_label,
+                state_path,
+                len(ran_ids),
+            )
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = f"rag_report_{slug}_{timestamp}"
+        sidecar_path = report_dir / f"rag_thread_{slug}_{timestamp}.json"
+        sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+        sidecar_payload = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "profile": profile_label,
+            "summary": summary,
+            "threads": list(threads.values()),
+        }
+        sidecar_path.write_text(
+            json.dumps(sidecar_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("RAG thread sidecar written path=%s", sidecar_path)
+        if report_formats:
+            console.print(f"\n[dim]Generating RAG reports in:[/dim] {report_dir}")
+        for fmt in report_formats:
+            fmt = fmt.strip().lower()
+            if fmt in rag_reporters:
+                try:
+                    output_path = rag_reporters[fmt].generate(
+                        results=results,
+                        summary=summary,
+                        output_path=report_dir / base_name,
+                        log_path=Path(log_path),
+                        sidecar_path=sidecar_path,
+                        metadata={
+                            "Profile": profile_label,
+                            "Guard Model": f"{settings.guard.type}/{settings.guard.model}",
+                            "Endpoint Mode": resolved_endpoint_mode,
+                        },
+                    )
+                    console.print(f"  [green]✓[/green] {output_path}")
+                    logger.info("Generated RAG report format=%s path=%s", fmt, output_path)
+                except Exception as e:
+                    console.print(f"  [red]✗[/red] {fmt}: {e}")
+                    logger.exception("Failed to generate RAG report format=%s", fmt)
+
+        client.close()
 
 
 @app.command()

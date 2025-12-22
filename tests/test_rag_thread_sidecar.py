@@ -67,6 +67,12 @@ def test_rag_run_writes_thread_sidecar(tmp_path, monkeypatch):
                 "  output_dir: " + str(tmp_path / "reports"),
                 "  formats:",
                 "    - ascii",
+                "rag:",
+                "  profiles:",
+                "    - name: local",
+                "      active: true",
+                "      base_url: http://localhost:8000",
+                "      endpoint_mode: query",
             ]
         ),
         encoding="utf-8",

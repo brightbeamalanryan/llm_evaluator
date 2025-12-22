@@ -108,6 +108,7 @@ Remember: Reply with EXACTLY ONE WORD: ALLOW or BLOCK.
         user_prompt = self._build_user_prompt(tc, target_reply)
         response = self.guard_provider.chat(self.system_prompt, user_prompt)
 
+
         return ScorerResult(
             verdict=self._parse_verdict(response.content),
             raw_output=response.content,

@@ -1,6 +1,7 @@
 """RAG service client."""
 
 from dataclasses import dataclass, field
+import json
 from typing import Any
 import httpx
 
@@ -100,10 +101,15 @@ class RAGClient:
                 headers=headers,
                 json=payload,
             )
+
             response.raise_for_status()
             response_type = response_profile.get("type")
             if response_type == "sse":
                 return self._parse_sse_response(response)
+            if response_type == "ztl":
+                return self._parse_ztl_response(response)
+            if response_type == "chatbase":
+                return self._parse_chatbase_response(response)
             data = response.json()
             return self._parse_response(data)
         except httpx.HTTPError as e:
@@ -128,6 +134,45 @@ class RAGClient:
             rendered = rendered.replace(placeholder, str(replacement))
         return rendered
 
+    def _parse_ztl_response(self, response: httpx.Response) -> RAGResponse:
+        """Parse Zapier ZTL chunked response into an answer string."""
+        text = response.text or ""
+        answer_parts: list[str] = []
+        meta: dict[str, Any] = {}
+        for line in text.splitlines():
+            if not line:
+                continue
+            if line.startswith("0:"):
+                chunk = line[len("0:"):]
+                if chunk.startswith(" "):
+                    chunk = chunk[1:]
+                try:
+                    answer_parts.append(json.loads(chunk))
+                except json.JSONDecodeError:
+                    answer_parts.append(chunk.strip("\""))
+                continue
+            if line.startswith("2:"):
+                try:
+                    meta["session"] = json.loads(line[len("2:"):])
+                except json.JSONDecodeError:
+                    meta["session"] = line[len("2:"):]
+                continue
+            if line.startswith("f:"):
+                try:
+                    meta["message"] = json.loads(line[len("f:"):])
+                except json.JSONDecodeError:
+                    meta["message"] = line[len("f:"):]
+                continue
+            if line.startswith("d:"):
+                try:
+                    meta["finish"] = json.loads(line[len("d:"):])
+                except json.JSONDecodeError:
+                    meta["finish"] = line[len("d:"):]
+        return RAGResponse(
+            answer="".join(answer_parts),
+            raw_response={"raw": text, "meta": meta},
+        )
+
     def _parse_sse_response(self, response: httpx.Response) -> RAGResponse:
         """Parse an SSE response containing agent_response events."""
         text = response.text
@@ -149,6 +194,39 @@ class RAGClient:
         return RAGResponse(
             answer="".join(answer_parts),
             raw_response={"raw": text},
+        )
+
+    def _parse_chatbase_response(self, response: httpx.Response) -> RAGResponse:
+        """Parse Chatbase streaming chunks into an answer string."""
+        text = response.text or ""
+        answer_parts: list[str] = []
+        meta: dict[str, Any] = {}
+        for line in text.splitlines():
+            if not line or ":" not in line:
+                continue
+            prefix, payload = line.split(":", 1)
+            payload = payload.lstrip()
+            if prefix == "0":
+                try:
+                    answer_parts.append(json.loads(payload))
+                except json.JSONDecodeError:
+                    answer_parts.append(payload.strip("\""))
+                continue
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError:
+                parsed = payload
+            if prefix in meta:
+                existing = meta[prefix]
+                if isinstance(existing, list):
+                    existing.append(parsed)
+                else:
+                    meta[prefix] = [existing, parsed]
+            else:
+                meta[prefix] = parsed
+        return RAGResponse(
+            answer="".join(answer_parts),
+            raw_response={"raw": text, "meta": meta},
         )
 
     def retrieve(self, query: str, top_k: int = 5, **kwargs: Any) -> list[RetrievedDocument]:
@@ -226,6 +304,8 @@ class RAGClient:
 
     def __exit__(self, *args: Any) -> None:
         self.close()
+
+
 
 
 class MockRAGClient(RAGClient):

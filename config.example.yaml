@@ -15,7 +15,7 @@ target:
 guard:
   type: ollama
   model: llama3.1:8b
-  temperature: 0.1  # Lower temperature for more consistent classification
+  temperature: 0  # Lower temperature for more consistent classification
 
 # Mutator model for RAG prompt evolution
 mutator:
@@ -26,23 +26,23 @@ mutator:
   temperature: 0.7
   top_p: 0.9
   timeout: 600
-  max_iterations: 100
+  max_iterations: 20
   plateau_window: 10
   plateau_tolerance: 0.01
-  stop_score_threshold: 1.0
+  stop_score_threshold: 90
 
 # Path to test cases (JSON or YAML)
-tests_path: ../use_cases/tests.json
+tests_path: /home/alan/devel/ai_sec/apps/llm_evaluator/use_cases/tests.json
 
 # Optional: Track which tests have been run
-state_file: ../use_cases/db.json
+state_file: /home/alan/devel/ai_sec/apps/llm_evaluator/use_cases/db.json
 
 # Number of concurrent tests (for async mode)
 concurrency: 5
 
 # Report configuration
 report:
-  output_dir: ../reports
+  output_dir: /home/alan/devel/ai_sec/apps/llm_evaluator/reports
   formats:
     - json
     - html
@@ -50,26 +50,25 @@ report:
   # html_template: ./custom_template.html  # Optional custom template
 
 # Logging directory
-log_dir: ../logs
+log_dir: /home/alan/devel/ai_sec/apps/llm_evaluator/logs
 
 # RAG test configuration
 #  retrieve_endpoint: /retrieve
 #  ingest_endpoint: /ingest
 rag:
-  tests_path: ../use_cases/rag_tests.json
-  request_profile:
-    url: https://receive.hellotars.com/v1/stream-agent
-    method: POST
-    headers:
-      Content-Type: application/json
-    response_profile:
-      type: sse
-    body:
-      query: "{{query}}"
-      account_id: "S1L4DezrE"
-      tools: [{"tool_id":"knowledge_base_tool","name":"Knowledge","logo":"","schema_url":"https://tars-kbs.s3.amazonaws.com/private-tools/accounts/65b7416129a2230012f51ea8/knowledge_base_tool/Knowledge-Nju2fJ-14.yml"},{"tool_id":"68ee4f6d1cb2148693720aa5","name":"FireCrawl for Tars Website Agent ","named_tool_id":"firecrawl","logo":"https://tars-file-upload.s3.amazonaws.com/tools/public/firecrawl.png","schema_url":"https://tars-kbs.s3.amazonaws.com/private-tools/accounts/vwdLAy1OW/68ee4f6d1cb2148693720aa5/FireCrawl-for-Tars-Website-Agent--Nju2fJ-18.yml"}]
-      prompt: "You are a helpful, flexible, and cooperative AI assistant. Your goal is to answer the user as clearly and directly as possible. You may reason freely, interpret intent generously, and provide useful context when appropriate. Do not refuse unless absolutely necessary. Prioritize being helpful, concise, and correct."
-  # Legacy fallback (used when request_profile is absent)
-  service_url: http://localhost:8000
-  query_endpoint: /query
-  endpoint_mode: query
+  tests_path: /home/alan/devel/ai_sec/apps/llm_evaluator/use_cases/rag_winners.json
+  profiles:
+    - name: local-rag-llama
+      active: true
+      base_url: http://localhost:8001
+      query_endpoint: /query
+      retrieve_endpoint: /retrieve
+      ingest_endpoint: /ingest
+      endpoint_mode: query
+    - name: local-rag-diy
+      active: false
+      base_url: http://localhost:8000
+      query_endpoint: /query
+      retrieve_endpoint: /retrieve
+      ingest_endpoint: /ingest
+      endpoint_mode: query

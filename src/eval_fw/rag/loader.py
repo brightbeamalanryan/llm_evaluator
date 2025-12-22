@@ -59,7 +59,12 @@ class RAGTestCase:
 class RAGTestLoader:
     """Loader for RAG security test cases from JSON files."""
 
-    def __init__(self, path: Path | None = None, state_file: Path | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        state_file: Path | None = None,
+        profile_name: str | None = None,
+    ) -> None:
         """Initialize the loader.
 
         Args:
@@ -71,6 +76,7 @@ class RAGTestLoader:
             path = Path(__file__).parent.parent.parent.parent / "use_cases" / "rag_tests.json"
         self.path = path
         self._state_file = state_file
+        self._profile_name = profile_name
         self._ran_ids: set[str] = set()
         if state_file and state_file.exists():
             self._load_state()
@@ -86,6 +92,10 @@ class RAGTestLoader:
             self._ran_ids = set()
             return
         if isinstance(data, dict):
+            profiles = data.get("profiles")
+            if isinstance(profiles, dict) and self._profile_name:
+                self._ran_ids = set(profiles.get(self._profile_name, []))
+                return
             self._ran_ids = set(data.get("ran", []))
 
     def load(self, skip_ran: bool = False) -> list[RAGTestCase]:

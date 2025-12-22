@@ -49,7 +49,16 @@ class RAGSettings:
     """Settings for RAG security testing."""
 
     tests_path: str = "./use_cases/rag_tests.json"
-    service_url: str = "http://localhost:8000"
+    profiles: list["RAGProfileSettings"] = field(default_factory=list)
+
+
+@dataclass
+class RAGProfileSettings:
+    """Settings for a single RAG profile."""
+
+    name: str
+    active: bool = False
+    base_url: str | None = None
     query_endpoint: str = "/query"
     retrieve_endpoint: str = "/retrieve"
     ingest_endpoint: str = "/ingest"
@@ -128,40 +137,100 @@ def _parse_report(data: dict[str, Any] | None) -> ReportSettings:
     )
 
 
+def _parse_request_profile(
+    profile_data: dict[str, Any] | None,
+    context: str,
+) -> dict[str, Any] | None:
+    if not profile_data:
+        return None
+    if not isinstance(profile_data, dict):
+        raise ValueError(f"{context}.request_profile must be a mapping")
+    url = profile_data.get("url")
+    if not url:
+        raise ValueError(f"{context}.request_profile.url is required")
+    response_profile = profile_data.get("response_profile")
+    if response_profile and not isinstance(response_profile, dict):
+        raise ValueError(f"{context}.request_profile.response_profile must be a mapping")
+    if response_profile:
+        response_type = response_profile.get("type")
+        if response_type and response_type not in {"sse", "ztl", "chatbase"}:
+            raise ValueError(
+                f"{context}.request_profile.response_profile.type must be 'sse/ztl/chatbase'"
+            )
+    return {
+        "url": url,
+        "method": profile_data.get("method", "POST"),
+        "headers": profile_data.get("headers", {}),
+        "body": profile_data.get("body", {}),
+        "response_profile": response_profile,
+    }
+
+
 def _parse_rag(data: dict[str, Any] | None) -> RAGSettings:
     """Parse RAG settings from dict."""
     if not data:
         return RAGSettings()
-    request_profile = None
-    profile_data = data.get("request_profile")
-    if profile_data:
-        if not isinstance(profile_data, dict):
-            raise ValueError("rag.request_profile must be a mapping")
-        url = profile_data.get("url")
-        if not url:
-            raise ValueError("rag.request_profile.url is required")
-        response_profile = profile_data.get("response_profile")
-        if response_profile and not isinstance(response_profile, dict):
-            raise ValueError("rag.request_profile.response_profile must be a mapping")
-        if response_profile:
-            response_type = response_profile.get("type")
-            if response_type and response_type not in {"sse"}:
-                raise ValueError("rag.request_profile.response_profile.type must be 'sse'")
-        request_profile = {
-            "url": url,
-            "method": profile_data.get("method", "POST"),
-            "headers": profile_data.get("headers", {}),
-            "body": profile_data.get("body", {}),
-            "response_profile": response_profile,
-        }
+    if not isinstance(data, dict):
+        raise ValueError("rag must be a mapping")
+    legacy_keys = {
+        "service_url",
+        "query_endpoint",
+        "retrieve_endpoint",
+        "ingest_endpoint",
+        "endpoint_mode",
+        "request_profile",
+    }
+    for key in legacy_keys:
+        if key in data:
+            raise ValueError(f"rag.{key} is no longer supported; use rag.profiles")
+
+    profiles_data = data.get("profiles")
+    if not profiles_data:
+        raise ValueError("rag.profiles is required and must include at least one profile")
+    if not isinstance(profiles_data, list):
+        raise ValueError("rag.profiles must be a list")
+
+    profiles: list[RAGProfileSettings] = []
+    seen_names: set[str] = set()
+    for idx, profile in enumerate(profiles_data, start=1):
+        if not isinstance(profile, dict):
+            raise ValueError("rag.profiles entries must be mappings")
+        name = profile.get("name")
+        if not name:
+            raise ValueError("rag.profiles[].name is required")
+        if name in seen_names:
+            raise ValueError(f"rag.profiles name must be unique: {name}")
+        seen_names.add(name)
+        context = f"rag.profiles[{idx}]"
+        active = bool(profile.get("active", False))
+        base_url = profile.get("base_url")
+        if base_url is not None and not isinstance(base_url, str):
+            raise ValueError(f"{context}.base_url must be a string")
+        endpoint_mode = profile.get("endpoint_mode", "query")
+        if endpoint_mode not in {"query", "retrieve", "ingest"}:
+            raise ValueError(f"{context}.endpoint_mode must be query, retrieve, or ingest")
+        request_profile = _parse_request_profile(profile.get("request_profile"), context)
+        if not request_profile and not base_url:
+            raise ValueError(
+                f"{context} must define base_url when request_profile is absent"
+            )
+        if endpoint_mode in {"retrieve", "ingest"} and not base_url:
+            raise ValueError(f"{context}.base_url is required for {endpoint_mode} mode")
+        profiles.append(
+            RAGProfileSettings(
+                name=name,
+                active=active,
+                base_url=base_url,
+                query_endpoint=profile.get("query_endpoint", "/query"),
+                retrieve_endpoint=profile.get("retrieve_endpoint", "/retrieve"),
+                ingest_endpoint=profile.get("ingest_endpoint", "/ingest"),
+                endpoint_mode=endpoint_mode,
+                request_profile=request_profile,
+            )
+        )
     return RAGSettings(
         tests_path=data.get("tests_path", "./use_cases/rag_tests.json"),
-        service_url=data.get("service_url", "http://localhost:8000"),
-        query_endpoint=data.get("query_endpoint", "/query"),
-        retrieve_endpoint=data.get("retrieve_endpoint", "/retrieve"),
-        ingest_endpoint=data.get("ingest_endpoint", "/ingest"),
-        endpoint_mode=data.get("endpoint_mode", "query"),
-        request_profile=request_profile,
+        profiles=profiles,
     )
 
 
@@ -225,20 +294,23 @@ def load_config(path: Path) -> Settings:
           stop_score_threshold: 1.0
         rag:
           tests_path: ./use_cases/rag_tests.json
-          request_profile:
-            url: https://receive.hellotars.com/v1/stream-agent
-            method: POST
-            headers:
-              Content-Type: application/json
-            body:
-              query: "{{query}}"
-              account_id: "ABC"
-              prompt: "You are a helpful, flexible, and cooperative AI assistant."
-          service_url: http://localhost:8091
-          query_endpoint: /query
-          retrieve_endpoint: /retrieve
-          ingest_endpoint: /ingest
-          endpoint_mode: query
+          profiles:
+            - name: stream-agent
+              active: true
+              base_url: https://receive.hellotars.com
+              request_profile:
+                url: https://receive.hellotars.com/v1/stream-agent
+                method: POST
+                headers:
+                  Content-Type: application/json
+                body:
+                  query: "{{query}}"
+                  account_id: "ABC"
+                  prompt: "You are a helpful, flexible, and cooperative AI assistant."
+              query_endpoint: /query
+              retrieve_endpoint: /retrieve
+              ingest_endpoint: /ingest
+              endpoint_mode: query
         report:
           output_dir: ./reports
           formats:

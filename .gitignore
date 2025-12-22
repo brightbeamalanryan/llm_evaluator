@@ -13,3 +13,4 @@ src/logs
 logs/eval-fw.log logs/log.txt
 logs/
 reports/
+config.private.yaml

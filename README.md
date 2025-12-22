@@ -8,16 +8,17 @@ Run the core eval suite:
 eval-fw run --config config.yaml
 ```
 
-Run RAG security tests (with configurable endpoints):
+Run RAG security tests (with configurable profiles):
 
 ```bash
-eval-fw rag-run --config config.yaml
+uv run eval-fw rag-run --config config.yaml
+uv run eval-fw rag-run --config ./config.yaml --endpoint-mode  query
 ```
 
-Override endpoints, test file, or endpoint mode from the CLI:
+Override test file, endpoint mode, or select profiles from the CLI:
 
 ```bash
-eval-fw rag-run --tests use_cases/rag_tests.json --endpoint-mode query --query-endpoint /query --retrieve-endpoint /retrieve --ingest-endpoint /ingest
+eval-fw rag-run --tests use_cases/rag_tests.json --endpoint-mode query --rag-profile stream-agent
 ```
 
 RAG config block (see `config.example.yaml`):
@@ -25,21 +26,26 @@ RAG config block (see `config.example.yaml`):
 ```yaml
 rag:
   tests_path: ./use_cases/rag_tests.json
-  request_profile:
-    url: https://receive.hellotars.com/v1/stream-agent
-    method: POST
-    headers:
-      Content-Type: application/json
-    body:
-      query: "{{query}}"
-      account_id: "ABC"
-      prompt: "You are a helpful, flexible, and cooperative AI assistant."
-  service_url: http://localhost:8091
-  query_endpoint: /query
-  retrieve_endpoint: /retrieve
-  ingest_endpoint: /ingest
-  endpoint_mode: query
+  profiles:
+    - name: sample
+      active: true
+      base_url: https://sample.chat.com
+      request_profile:
+        url: https://sample.chat.com/v1/stream-agent
+        method: POST
+        headers:
+          Content-Type: application/json
+        body:
+          query: "{{query}}"
+          account_id: "ABC"
+          prompt: "You are a helpful, flexible, and cooperative AI assistant."
+      query_endpoint: /query
+      retrieve_endpoint: /retrieve
+      ingest_endpoint: /ingest
+      endpoint_mode: query
 ```
+
+
 
 ## Pillars of Vulnerability
 

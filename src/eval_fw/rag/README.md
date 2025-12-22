@@ -233,7 +233,31 @@ print(summary)
 
 ## Configuring Your RAG Service
 
-The client can use a request profile for query calls, or fall back to fixed endpoints:
+Configure one or more RAG profiles in your YAML config:
+
+```yaml
+rag:
+  tests_path: ./use_cases/rag_tests.json
+  profiles:
+    - name: stream-agent
+      active: true
+      base_url: https://receive.hellotars.com
+      request_profile:
+        url: https://receive.hellotars.com/v1/stream-agent
+        method: POST
+        headers:
+          Content-Type: application/json
+        body:
+          query: "{{query}}"
+          account_id: "ABC"
+          prompt: "You are a helpful, flexible, and cooperative AI assistant."
+      query_endpoint: /query
+      retrieve_endpoint: /retrieve
+      ingest_endpoint: /ingest
+      endpoint_mode: query
+```
+
+If you are using the client directly, you can still pass a request profile and base URL:
 
 ```python
 client = RAGClient(
